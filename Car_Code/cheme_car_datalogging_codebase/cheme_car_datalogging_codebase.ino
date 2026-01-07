@@ -1,3 +1,14 @@
+// McMaster Chem-E Car Team
+// Chem-E Car Datalogging Code - 24/25
+
+/*
+The code to be used before the Chem-E Car competition to run the car while
+logging relevant data for the Braking subteam. This will give them an idea
+of consitency and performance from run to run. Makes use of an RP2040
+microcontroller to drive the car and stop at a specified distance. More
+information is available in the readme.
+*/
+
 // Remove macros
 #undef radians
 #undef degrees
@@ -159,7 +170,14 @@ const int SERVO_ANGLE = 1475;
 const int MAX_OFFSET = 1024;
 const int YAW_REF = 90;
 
-void drive_forward(void) // Drive function
+/*
+Description: Subroutine to drive car forward.
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
+void drive_forward(void)
 {
   digitalWrite(LEFT_PWM_1, HIGH);
   digitalWrite(RIGHT_PWM_2, HIGH);
@@ -167,7 +185,14 @@ void drive_forward(void) // Drive function
   digitalWrite(RIGHT_PWM_1, LOW);
 }
 
-void stop_driving(void) // Stop function
+/*
+Description: Subroutine to stop car and brake motors.
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
+void stop_driving(void)
 {
   digitalWrite(LEFT_PWM_1, HIGH);
   digitalWrite(RIGHT_PWM_2, HIGH);
@@ -175,7 +200,14 @@ void stop_driving(void) // Stop function
   digitalWrite(RIGHT_PWM_1, HIGH);
 }
 
-void servo_dump(Servo servo, int angle_us, int delay_ms) // Dump reactants into vessel with servo
+/*
+Description: Subroutine to dump reactants into vessel.
+Inputs:      void
+Outputs:     void
+Parameters:  (Servo)servo, (int)angle_us, (int)delay_ms
+Returns:     void
+*/
+void servo_dump(Servo servo, int angle_us, int delay_ms)
 {
   // Rotate to specified position
   servo.writeMicroseconds(angle_us);
@@ -190,13 +222,27 @@ void servo_dump(Servo servo, int angle_us, int delay_ms) // Dump reactants into 
   servo.writeMicroseconds(450);
 }
 
-void start_stir(int stir_pin_1, int stir_pin_2, int speed) // Start stirring mechanism
+/*
+Description: Subroutine to set speed for reaction stir motors.
+Inputs:      void
+Outputs:     void
+Parameters:  (int)stir_pin_1, (int)stir_pin_2, (int)speed
+Returns:     void
+*/
+void start_stir(int stir_pin_1, int stir_pin_2, int speed)
 {
   digitalWrite(stir_pin_1, LOW);  // For fast decay
   analogWrite(stir_pin_2, speed); // Set motor to speed obtained through testing
 }
 
-void kalman_filter(double x_k, double p_k, double q, double r, double input, bool tempTrue) // Kalman filtering algorithm
+/*
+Description: Subroutine to implement Kalman filtering on temperature sensor data.
+Inputs:      void
+Outputs:     (double)x_temp, (double)p_temp
+Parameters:  (double)x_k, (double)p_k, (double)q, (double)r, (double)input
+Returns:     void
+*/
+void kalman_filter(double x_k, double p_k, double q, double r, double input, bool tempTrue)
 {
   // Kalman filter prediction
   double x_k_minus = x_k;     // Predicted next state estimate
@@ -225,7 +271,14 @@ void kalman_filter(double x_k, double p_k, double q, double r, double input, boo
   }
 }
 
-void printer(bool serial_true, double millis_time, double outputs[DATA_SIZE]) // Output function
+/*
+Description: Subroutine to print relevant data out to serial or a microSD card.
+Inputs:      void
+Outputs:     void
+Parameters:  (bool)serial_true, (double)millis_time, (double)outputs[DATA_SIZE]
+Returns:     void
+*/
+void printer(bool serial_true, double millis_time, double outputs[DATA_SIZE])
 {
   if (serial_true) // Print data to serial or SD card file accordingly in .csv format
   {
@@ -253,7 +306,13 @@ void printer(bool serial_true, double millis_time, double outputs[DATA_SIZE]) //
   }
 }
 
-// Enable reports for IMU
+/*
+Description: Subroutine to set the desired reports on the IMU.
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
 void set_reports(void)
 {
   Serial.println("Setting desired reports");
@@ -263,7 +322,13 @@ void set_reports(void)
   }
 }
 
-// Convert Quaternion to Euler Angles to get yaw
+/*
+Description: Subroutine convert quaternions from the IMU into euler angles to obtain yaw.
+Inputs:      void
+Outputs:     void
+Parameters:  (float)qr, (float)qi, (float)qj, (float)qk, (euler_t)*ypr, (bool)degrees
+Returns:     void
+*/
 void quaternion_to_euler(float qr, float qi, float qj, float qk, euler_t *ypr, bool degrees = false)
 {
 
@@ -284,13 +349,26 @@ void quaternion_to_euler(float qr, float qi, float qj, float qk, euler_t *ypr, b
   }
 }
 
-// Pointer function
+/*
+Description: Pointer subroutine for euler angles.
+Inputs:      void
+Outputs:     void
+Parameters:  (sh2_RotationVectorWAcc_t)*rotational_vector, (float)qi, (euler_t)*ypr, (bool)degrees
+Returns:     void
+*/
 void quaternion_to_euler_RV(sh2_RotationVectorWAcc_t *rotational_vector, euler_t *ypr, bool degrees = false)
 {
   quaternion_to_euler(rotational_vector->real, rotational_vector->i, rotational_vector->j, rotational_vector->k, ypr, degrees);
 }
 
-void pid_loop(void) // Update steering angle according to PID algorithm
+/*
+Description: PID loop subroutine to adjust steering angle.
+Inputs:      (double)error, (double)sum_error, (double)last_error, (double)curr_time, (double)prev_time
+Outputs:     (int)adj_pid_output
+Parameters:  void
+Returns:     void
+*/
+void pid_loop(void)
 {
   // Generate output of controller based on constants & errors
   double pid_output = (error * K_P + sum_error * K_I + (error - last_error) / (curr_time - prev_time) * K_D) / YAW_REF * MAX_OFFSET;
@@ -317,6 +395,13 @@ void pid_loop(void) // Update steering angle according to PID algorithm
   right_servo.writeMicroseconds(SERVO_ANGLE - adj_pid_output);
 }
 
+/*
+Description: Subroutine to fetch temperature form the temperature sensor when the data is ready.
+Inputs:      void
+Outputs:     (double)temperature_c
+Parameters:  void
+Returns:     void
+*/
 void fetch_temp(void)
 {
   temperature_c = temp_sensors.getTempCByIndex(0); // Get temperature in Celsius
@@ -328,7 +413,14 @@ void fetch_temp(void)
   last_fetch = true;              // Raise fetch flag to signal ready
 }
 
-void unwrap_yaw(void) // Unwraps yaw angle to prevent discontinuities
+/*
+Description: Subroutine to unwrap yaw angle to prevent discontinuities in the function over time.
+Inputs:      (double)raw_yaw, (double)prev_yaw
+Outputs:     (double)yaw
+Parameters:  void
+Returns:     void
+*/
+void unwrap_yaw(void)
 {
   double delta = raw_yaw - prev_yaw;
 
@@ -354,7 +446,14 @@ void unwrap_yaw(void) // Unwraps yaw angle to prevent discontinuities
   }
 }
 
-void setup(void) // Setup (executes once)
+/*
+Description: Arduino setup subroutine.
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
+void setup(void)
 {
   // Indicate status to be initialized
   pixel.begin();
@@ -498,7 +597,14 @@ void setup(void) // Setup (executes once)
   pixel.show();
 }
 
-void loop(void) // Loop (main loop)
+/*
+Description: Arduino loop subroutine.
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
+void loop(void)
 {
   drive_forward(); // Start drive
 
