@@ -5,13 +5,24 @@ This project uses an Adafruit Feather RP2040 Adalogger microcontroller programme
 
 The major components used are as follows:<br />
 1 - N20 100 RPM Motor (for drive system)<br />
-1 - N20 1000 RPM Motor (for reaction stirring mechanism)<br />
+2 - N20 1000 RPM Motor (for reaction stirring mechanism & auxliliary use)<br />
 3 - SER0039 Servo Motor (for initially mixing reactants & steering)<br />
 1 - DRV8847 Motor Driver (for auxiliary motors)<br />
 1 - AMT103 Rotary Encoder (for datalogging to tune braking model only)<br />
+1 - CS326 Solid State Relay (for drive motors)<br />
+1 - AD623 Instrumentation Amplifier (for braking reaction sensing setup)<br />
+1 - GL5516 Phootoresistor (for braking reaction sensing setup)<br />
+1 - 5 mm White LED (for braking reaction sensing setup)<br />
+1 - REF2033 Dual-Output Voltage Reference (for braking reaction sensing setup)<br />
+1 - INA219 Bidirectional Current/Power Monitor (for propulsion reaction datalogging & safety)<br />
+1 - WS2812B LED Strip (for auxiliary lighting)<br />
+1 - 2.5W Speaker (for auxiliary use)<br />
+1 - PAM8302A Class D Amplifier (for driving speaker)<br />
+1 - Toggle Switch (for enable line)<br />
 1 - Adafruit 9-DOF Orientation IMU Fusion Breakout (BNO085 for logging/maintaining heading)<br /> 
-1 - Adafruit Feather RP2040 Adalogger Microcontroller<br />
-1 - 5000 mAh Li-Po Battery<br />
+1 - Adafruit Feather RP2040 Adalogger Microcontroller (for controlling the car)<br />
+1 - 30W Hydrogen Fuel Cell  (for drive power)<br />
+1 - 5000 mAh Li-Po Battery (for auxiliary power)<br />
 
 This repository also contains the custom-made PCB design for the component wiring we are using this year. The design was made using Altium, source files & gerber files are present in this repository.
 
