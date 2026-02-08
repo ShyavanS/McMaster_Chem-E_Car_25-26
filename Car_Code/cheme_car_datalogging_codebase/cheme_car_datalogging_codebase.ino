@@ -23,6 +23,7 @@ information is available in the readme.
 #include "encoder/encoder.cpp" // Modified to remove debounce delays, don't replace!
 #include "encoder/encoder.hpp" // Modified to remove debounce delays, don't replace!
 #include "SdFat.h"
+#include <Wire.h>
 
 #define NUM_LEDS 1 // Status LED
 
@@ -56,6 +57,8 @@ information is available in the readme.
 
 // Define chip select pin for SD card
 #define SD_CS_PIN 23
+
+#define A219_I2C 0x40 // I2C address for current/voltage sensor
 
 using namespace encoder;
 
@@ -447,6 +450,45 @@ void unwrap_yaw(void)
 }
 
 /*
+Description: Helper function to write value to register over I2C
+Inputs: void
+Outputs: void
+Parameters: address (unsigned 8-bit), reg (unsigned 8-bit), value (unsigned 16-bit)
+Returns: void
+*/
+void writeRegister(uint8_t address, uint8_t reg, uint16_t value) {
+  Wire.beginTransmission(address);
+
+  Wire.write(reg);
+  Wire.write((value >> 8) & 0xFF); // MSB
+  Wire.write(value & 0xFF); // LSB
+
+  Wire.endTransmission();
+}
+
+/*
+Description: Helper function to read value from register over I2C
+Inputs: void
+Outputs: void
+Parameters: address (unsigned 8-bit), reg (unsigned 8-bit)
+Returns: 2 bytes of data
+*/
+uint16_t readRegister(uint8_t address, uint8_t reg) {
+  Wire.beginTransmission(address);
+  Wire.write(reg);
+  Wire.endTransmission();
+
+  Wire.requestFrom(address, (uint8_t)2); // Request 2 bytes
+  if(Wire.available() >= 2) { // If data available then return it
+    uint16_t value = Wire.read() << 8;
+    value |= Wire.read();
+    return value;
+  }
+
+  return 0; // Otherwise return 0
+}
+
+/*
 Description: Arduino setup subroutine.
 Inputs:      void
 Outputs:     void
@@ -455,6 +497,30 @@ Returns:     void
 */
 void setup(void)
 {
+
+  // Intitalize Voltage/Current Sensor
+  Wire.begin();
+
+  /*
+  Write to config register (0x00)
+  Sets it to 16V bus range
+  Gain /4
+  12 bit ADC
+  Continuous Mode
+  */
+  writeRegister(A219_I2C, 0x00, 0x119F);
+
+  /*
+  Write to calibration register (0x05)
+  Assumes 0.1 Ohm resistor and 2.0A max current (0.1 mA per bit)
+  Uses formula 0.04096/(Resistor*Current_Per_Bit)
+  Writes 4096 in this case
+  */
+  writeRegister(A219_I2C, 0x05, 0x1000);
+
+  // For now end transmission
+  Wire.end();
+
   // Indicate status to be initialized
   pixel.begin();
   pixel.setBrightness(255);
