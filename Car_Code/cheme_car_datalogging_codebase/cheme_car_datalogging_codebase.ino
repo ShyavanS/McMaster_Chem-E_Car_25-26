@@ -23,6 +23,9 @@ information is available in the readme.
 #include "encoder/encoder.cpp" // Modified to remove debounce delays, don't replace!
 #include "encoder/encoder.hpp" // Modified to remove debounce delays, don't replace!
 #include "SdFat.h"
+#include <BackgroundAudio.h>
+#include <PWMAudio.h>
+#include <SPI.h>
 
 #define NUM_LEDS 1 // Status LED
 
@@ -45,10 +48,10 @@ information is available in the readme.
 #define RIGHT_SERVO_PWM SCK
 
 // Define encoder pins
-#define LEFT_ENC_A 25
-#define LEFT_ENC_B MISO
-#define RIGHT_ENC_A A0
-#define RIGHT_ENC_B A2
+//#define LEFT_ENC_A 25
+//#define LEFT_ENC_B MISO
+#define ENC_A A0
+#define ENC_B A2
 
 #define BRAK_TEMP_SENS A1 // Pin for the teperature sensor data line
 
@@ -56,6 +59,9 @@ information is available in the readme.
 
 // Define chip select pin for SD card
 #define SD_CS_PIN 23
+
+// Define audio output pin
+#define AUDIO_OUT 20
 
 using namespace encoder;
 
@@ -77,9 +83,9 @@ Servo prop_servo;
 Servo left_servo;
 Servo right_servo;
 
-// Create encoder objects using only A & B pins, not index, assign to pio0, sm 1 & 3 in reversed direction w/ microstepping for smoothness
-Encoder left_drive(PIO pio0, 1, {LEFT_ENC_A, LEFT_ENC_B}, PIN_UNUSED, REVERSED_DIR, PPR, true);
-Encoder right_drive(PIO pio0, 3, {RIGHT_ENC_A, RIGHT_ENC_B}, PIN_UNUSED, REVERSED_DIR, PPR, true);
+// Create encoder object using only A & B pins, not index, assign to pio0, sm 1 & 3 in reversed direction w/ microstepping for smoothness
+//Encoder left_drive(PIO pio0, 1, {LEFT_ENC_A, LEFT_ENC_B}, PIN_UNUSED, REVERSED_DIR, PPR, true);
+Encoder drive_encoder(PIO pio0, 3, {ENC_A, ENC_B}, PIN_UNUSED, REVERSED_DIR, PPR, true);
 
 // Create BNO085 instance
 Adafruit_BNO08x bno08x(BNO08X_RESET);
@@ -95,8 +101,20 @@ SdFat sd;
 FsFile root;
 FsFile next_file;
 FsFile data_file;
+FsFile audio_file;
+String start_music = "start_music.mp3"; // placeholders for actual audio file names
+String stop_music = "stop_music.mp3";
 SdSpiConfig config(SD_CS_PIN, DEDICATED_SPI, SD_SCK_MHZ(16), &SPI1);
 String file_name;
+
+// Set up audio output using PWM
+PWMAudio pwm(AUDIO_OUT);
+BackgroundAudioMP3 mp3(pwm); // create the mp3 player object and decoder
+uint8_t filebuff[512]; // allocates 512 bytes of memory to temporarily store audio data before processing
+
+// Flag to check if audio started playing
+bool audio_started = false;
+
 
 bool is_file_new = true; // Checks for new file
 
@@ -114,8 +132,8 @@ double init_yaw = 0.0; // initial yaw angle
 double yaw_diff = 0.0; // yaw angle difference
 
 // Wheel distance variables
-double dist_left_m = 0.0;
-double dist_right_m = 0.0;
+//double dist_left_m = 0.0;
+double drive_dist_m = 0.0;
 
 // Delta temperature
 double temp_diff;
@@ -150,7 +168,7 @@ double curr_time = 0.0f;
 double prev_time = 0.0f;
 uint32_t start_time;
 
-const int DATA_SIZE = 9; // Number of items to log
+const int DATA_SIZE = 8; // Number of items to log
 double data[DATA_SIZE];  // Data array
 
 // PID loop variables
@@ -446,6 +464,31 @@ void unwrap_yaw(void)
   }
 }
 
+
+/*
+Description: Send audio data chunks to the decoder and close file when done
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
+void send_audio(void)
+{
+  // If an audio file is open and the decoder buffer has enough space for more audio data
+  while (audio_file && mp3.availableForWrite() > 512)
+  {
+    // read 512 bytes from the audio file and send to the decoder
+    int len = audio_file.read(filebuff, 512);
+    mp3.write(filebuff, len);
+
+    if (len!=512) // if the audio data was shorter than 512 bytes, we've reached the end of the file
+    {
+      audio_file.close();
+      audio_started = false;
+    }
+  }
+}
+
 /*
 Description: Arduino setup subroutine.
 Inputs:      void
@@ -586,15 +629,17 @@ void setup(void)
   yaw_diff = yaw - init_yaw;
 
   // Initialize encoders & zero before starting
-  left_drive.init();
-  right_drive.init();
-  left_drive.zero();
-  right_drive.zero();
+  //left_drive.init();
+  drive_encoder.init();
+  //left_drive.zero();
+  drive_encoder.zero();
 
   curr_time = (time_us_32() - start_time) / 1000000.0f; // Taken to update prev_time
 
   pixel.setPixelColor(0, 0, 0, 255); // Indicate setup complete status
   pixel.show();
+
+  mp3.begin();
 }
 
 /*
@@ -606,6 +651,21 @@ Returns:     void
 */
 void loop(void)
 {
+  // Play start music
+  if (!audio_started) // If the audio hasn't started playing
+  {
+    audio_file = sd.open(start_music, FILE_READ); // Open corresponding SD card mp3 file
+    if (audio_file) // If the audio file open successfully
+    {
+      audio_started = true; // Flag that the audio file has been opened
+    }
+  }
+
+  if (audio_started && audio_file) //if the audio file has been opened and is still open send an audio data chunk
+  {
+    send_audio();
+  }
+  
   drive_forward(); // Start drive
 
   prev_time = curr_time;
@@ -627,8 +687,8 @@ void loop(void)
   pid_loop(); // Run PID controller
 
   // Convert encoder counts to distance
-  dist_left_m = (double)left_drive.count() / PPR * WHEEL_CIRCUMFERENCE_M;
-  dist_right_m = (double)right_drive.count() / PPR * WHEEL_CIRCUMFERENCE_M;
+  //dist_left_m = (double)left_drive.count() / PPR * WHEEL_CIRCUMFERENCE_M;
+  drive_dist_m = (double)drive_encoder.count() / PPR * WHEEL_CIRCUMFERENCE_M;
 
   // Update data array
   data[0] = temperature_c;
@@ -638,8 +698,8 @@ void loop(void)
   data[4] = yaw;
   data[5] = yaw_diff;
   data[6] = x_imu;
-  data[7] = dist_left_m;
-  data[8] = dist_right_m;
+  data[7] = drive_dist_m;
+  //data[8] = dist_right_m;
 
   // Open csv file
   data_file = sd.open(file_name, FILE_WRITE);
@@ -650,7 +710,7 @@ void loop(void)
     // Write file header
     if (is_file_new)
     {
-      data_file.println("Time (s),Raw Temperature (deg C),Filtered Temperature (deg C),Delta T (deg C),Temperature Line (deg C),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Filtered Yaw Angle (deg),Left Wheel Distance (m),Right Wheel Distance (m)");
+      data_file.println("Time (s),Raw Temperature (deg C),Filtered Temperature (deg C),Delta T (deg C),Temperature Line (deg C),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Filtered Yaw Angle (deg),Wheel Distance (m)");
       is_file_new = false;
     }
 
@@ -671,6 +731,13 @@ void loop(void)
     // Indicate status to be finished
     pixel.setPixelColor(0, 0, 255, 0);
     pixel.show();
+
+    // Play stop music
+    audio_file = sd.open(stop_music, FILE_READ);
+    while(audio_file) //keep playing audio until file is closed
+    {
+      send_audio();
+    }
 
     while (1)
       ; // Do nothing for remainder of uptime
