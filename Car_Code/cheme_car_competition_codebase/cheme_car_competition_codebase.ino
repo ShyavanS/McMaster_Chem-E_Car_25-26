@@ -35,6 +35,10 @@ More information is available in the readme.
 #define LEFT_SERVO_PWM MOSI
 #define RIGHT_SERVO_PWM SCK
 
+// Define Auxillary DC Motor Pins
+#define AUXDC_PWM_1 A3
+#define AUXDC_PWM_2 24
+
 #define BRAK_TEMP_SENS A1 // Pin for the teperature sensor data line
 
 #define BNO08X_RESET -1 // No reset pin for IMU over I2C, only enabled for SPI
@@ -52,6 +56,9 @@ Servo brak_servo;
 Servo prop_servo;
 Servo left_servo;
 Servo right_servo;
+
+// Enumeration for door commands
+enum DoorCmd { DOOR_STOP, DOOR_OPEN, DOOR_CLOSE };
 
 // Create BNO085 instance
 Adafruit_BNO08x bno08x(BNO08X_RESET);
@@ -185,6 +192,53 @@ void start_stir(int stir_pin_1, int stir_pin_2, int speed) // Start stirring mec
 {
   digitalWrite(stir_pin_1, LOW);  // For fast decay
   analogWrite(stir_pin_2, speed); // Set motor to speed obtained through testing
+}
+
+/*
+Description: Subroutine to command the motor
+Inputs:      void
+Outputs:     void
+Parameters:  (DoorCmd)cmd, (int)speed
+Returns:     void
+*/
+void DoorMotor(DoorCmd cmd, int speed)
+{
+  switch(cmd)
+  {
+    case DOOR_STOP:
+      analogWrite(AUXDC_PWM_1, 0);
+      analogWrite(AUXDC_PWM_2, 0);
+      break;
+    case DOOR_OPEN:
+      analogWrite(AUXDC_PWM_1, speed);
+      analogWrite(AUXDC_PWM_2, 0);
+      break;
+    case DOOR_CLOSE:
+      analogWrite(AUXDC_PWM_1, 0);
+      analogWrite(AUXDC_PWM_2, speed);
+      break;
+  }
+}
+
+/*
+Description: Subroutine to execute door sequence
+Inputs:      void
+Outputs:     void
+Parameters:  (int)speed, (int)closedelay, (int)opendelay, (int)holddelay
+Returns:     void
+*/
+void DoorSequence(int speed, int closedelay, int opendelay, int holddelay)
+{
+    DoorMotor(DOOR_OPEN, speed);    // Set motor to open
+    busy_wait_ms(opendelay);        // Wait how many ms the motor needs to operate for doors to open
+
+    DoorMotor(DOOR_STOP, 0);        // Stop motor to hold
+    busy_wait_ms(holddelay);        // Wait how many ms the door needs to stay open
+
+    DoorMotor(DOOR_CLOSE, speed);   // Set motor to close
+    busy_wait_ms(closedelay);       // Wait how many ms the motor needs to operate for doors to close 
+    
+    DoorMotor(DOOR_STOP, 0);        // Stop motor to finish operation
 }
 
 /*
