@@ -69,6 +69,9 @@ const float GOAL_YAW = 0.0;
 // Rejection threshold for noise in IMU measurements
 const float REJECT_THRESHOLD = 3.0;
 
+//define turbidity threshold for braking(THIS IS A PLACEHOLDER)
+const float TURB_THRESHOLD = 1.0; //THIS IS A PLACEHOLDER!!!
+
 // Define IMU variables
 double raw_yaw;        // raw yaw angle
 double prev_yaw;       // previous unwrapped yaw angle
@@ -513,23 +516,24 @@ void loop(void)
 
   //temp_change = 0.185f * curr_time - 4.5f; // Calculate temperature change
 
-  // if (temp_diff <= temp_change)
-  // {
-  //   // Stop driving
-  //   stop_driving();
-
-  //   // Indicate status to be finished
-  //   pixel.setPixelColor(0, 0, 255, 0);
-  //   pixel.show();
-
-  //   while (1)
-  //     ; // Do nothing for remainder of uptime
-  // }
+  //calculate turbidity(avg of 5 measurements)
   turbidity_v = 0.0f;
   for (int i = 0; i < 5; i++){
     turbidity_v = (double)analogRead(TURBIDITY_SENS) * 4095.0f / 1023.0f;
-
-
   }
   turbidity_v = turbidity_v / 5.0f * 2.0f;
+  
+  if (TURB_THRESHOLD <= turbidity_v)
+  {
+    // Stop driving
+    stop_driving();
+
+    // Indicate status to be finished
+    pixel.setPixelColor(0, 0, 255, 0);
+    pixel.show();
+
+    while (1)
+      ; // Do nothing for remainder of uptime
+  }
+
 }
