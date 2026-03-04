@@ -526,7 +526,7 @@ void setup(void)
   // --- READ CURRENT (0x04) ---
   int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
   // Multiply by calculated LSB (0.1mA)
-  float current_mA = rawCurrent * CURRENT_LSB;
+  float current_mA = rawCurrent * 0.1;
 
   // Wait for busVolatge to surpass 7V
   while(busVoltage < 7) {
@@ -674,8 +674,6 @@ void setup(void)
 
   pixel.setPixelColor(0, 0, 0, 255); // Indicate setup complete status
   pixel.show();
-
-  Wire.end();
 }
 
 /*
@@ -714,12 +712,10 @@ void loop(void)
   Wire.begin();
 
   uint16_t rawBus = readRegister(A219_I2C, 0x02);
-  double  = (rawBus >> 3) * 0.004;
+  double busVoltage = (rawBus >> 3) * 0.004;
 
   int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
-  double current_mA = rawCurrent * CURRENT_LSB;
-
-  Wire.end();
+  double current_mA = rawCurrent * 0.1;
 
   // Update data array
   data[0] = temperature_c;
@@ -744,7 +740,7 @@ void loop(void)
     // Write file header
     if (is_file_new)
     {
-      data_file.println("Time (s),Raw Temperature (deg C),Filtered Temperature (deg C),Delta T (deg C),Temperature Line (deg C),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Filtered Yaw Angle (deg),Left Wheel Distance (m),Right Wheel Distance (m), Current (A), Voltage (V)");
+      data_file.println("Time (s),Raw Temperature (deg C),Filtered Temperature (deg C),Delta T (deg C),Temperature Line (deg C),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Filtered Yaw Angle (deg),Left Wheel Distance (m),Right Wheel Distance (m), Current (mA), Voltage (V)");
       is_file_new = false;
     }
 
