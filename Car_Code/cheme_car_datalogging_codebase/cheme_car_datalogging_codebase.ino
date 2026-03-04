@@ -153,7 +153,7 @@ double curr_time = 0.0f;
 double prev_time = 0.0f;
 uint32_t start_time;
 
-const int DATA_SIZE = 9; // Number of items to log
+const int DATA_SIZE = 11; // Number of items to log
 double data[DATA_SIZE];  // Data array
 
 // PID loop variables
@@ -518,8 +518,21 @@ void setup(void)
   */
   writeRegister(A219_I2C, 0x05, 0x1000);
 
-  // For now end transmission
-  Wire.end();
+  // --- READ BUS VOLTAGE (0x02) ---
+  uint16_t rawBus = readRegister(A219_I2C, 0x02);
+  // Shift right 3 bits to remove status flags, then multiply by 4mV
+  float busVoltage = (rawBus >> 3) * 0.004;
+
+  // --- READ CURRENT (0x04) ---
+  int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
+  // Multiply by calculated LSB (0.1mA)
+  float current_mA = rawCurrent * CURRENT_LSB;
+
+  // Wait for busVolatge to surpass 7V
+  while(busVoltage < 7) {
+    rawBus = readRegister(A219_I2C, 0x02);
+    busVoltage = (rawBus >> 3) * 0.004;
+  }
 
   // Indicate status to be initialized
   pixel.begin();
@@ -661,6 +674,8 @@ void setup(void)
 
   pixel.setPixelColor(0, 0, 0, 255); // Indicate setup complete status
   pixel.show();
+
+  Wire.end();
 }
 
 /*
@@ -696,6 +711,16 @@ void loop(void)
   dist_left_m = (double)left_drive.count() / PPR * WHEEL_CIRCUMFERENCE_M;
   dist_right_m = (double)right_drive.count() / PPR * WHEEL_CIRCUMFERENCE_M;
 
+  Wire.begin();
+
+  uint16_t rawBus = readRegister(A219_I2C, 0x02);
+  double  = (rawBus >> 3) * 0.004;
+
+  int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
+  double current_mA = rawCurrent * CURRENT_LSB;
+
+  Wire.end();
+
   // Update data array
   data[0] = temperature_c;
   data[1] = x_temp;
@@ -706,6 +731,9 @@ void loop(void)
   data[6] = x_imu;
   data[7] = dist_left_m;
   data[8] = dist_right_m;
+  data[9] = current_mA;
+  data[10] = busVoltage;
+  
 
   // Open csv file
   data_file = sd.open(file_name, FILE_WRITE);
@@ -716,7 +744,7 @@ void loop(void)
     // Write file header
     if (is_file_new)
     {
-      data_file.println("Time (s),Raw Temperature (deg C),Filtered Temperature (deg C),Delta T (deg C),Temperature Line (deg C),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Filtered Yaw Angle (deg),Left Wheel Distance (m),Right Wheel Distance (m)");
+      data_file.println("Time (s),Raw Temperature (deg C),Filtered Temperature (deg C),Delta T (deg C),Temperature Line (deg C),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Filtered Yaw Angle (deg),Left Wheel Distance (m),Right Wheel Distance (m), Current (A), Voltage (V)");
       is_file_new = false;
     }
 
