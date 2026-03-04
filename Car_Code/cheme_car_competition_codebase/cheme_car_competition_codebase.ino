@@ -8,9 +8,9 @@ More information is available in the readme.
 */
 
 // Included libraries
-#include <OneWire.h>
+//#include <OneWire.h>
 #include <Adafruit_BNO08x.h>
-#include <DallasTemperature.h>
+//#include <DallasTemperature.h>
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
 #include "hardware/timer.h"
@@ -35,7 +35,8 @@ More information is available in the readme.
 #define LEFT_SERVO_PWM MOSI
 #define RIGHT_SERVO_PWM SCK
 
-#define BRAK_TEMP_SENS A1 // Pin for the teperature sensor data line
+//#define BRAK_TEMP_SENS A1 // Pin for the teperature sensor data line
+#define TURBIDITY_SENS A2
 
 #define BNO08X_RESET -1 // No reset pin for IMU over I2C, only enabled for SPI
 
@@ -57,8 +58,8 @@ Servo right_servo;
 Adafruit_BNO08x bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensor_value;
 
-OneWire one_wire(BRAK_TEMP_SENS);          // Create a OneWire instance to communicate with the sensor
-DallasTemperature temp_sensors(&one_wire); // Pass OneWire reference to Dallas Temperature sensor
+//OneWire one_wire(BRAK_TEMP_SENS);          // Create a OneWire instance to communicate with the sensor
+//DallasTemperature temp_sensors(&one_wire); // Pass OneWire reference to Dallas Temperature sensor
 
 Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status LED
 
@@ -68,6 +69,9 @@ const float GOAL_YAW = 0.0;
 // Rejection threshold for noise in IMU measurements
 const float REJECT_THRESHOLD = 3.0;
 
+//define turbidity threshold for braking(THIS IS A PLACEHOLDER)
+const float TURB_THRESHOLD = 1.0; //THIS IS A PLACEHOLDER!!!
+
 // Define IMU variables
 double raw_yaw;        // raw yaw angle
 double prev_yaw;       // previous unwrapped yaw angle
@@ -76,29 +80,31 @@ double init_yaw = 0.0; // initial yaw angle
 double yaw_diff = 0.0; // yaw angle difference
 
 // Delta temperature
-double temp_diff;
+//double temp_diff;
 
 // Temperature change threshold
-double temp_change;
+//double temp_change;
 
 // Last temperature fetched flag
-bool last_fetch;
+//bool last_fetch;
 
 // variables to store temperature
-double temperature_c; // Current temperature
-double init_temp;     // Initial temperature for differential calculation
+//double temperature_c; // Current temperature
+//double init_temp;     // Initial temperature for differential calculation
 
 // KALMAN FILTER variables
-double x_temp; // Filtered temperature
-double p_temp; // Initial error covariance
-double x_imu;  // Filtered temperature
-double p_imu;  // Initial error covariance
+// double x_temp; // Filtered temperature
+// double p_temp; // Initial error covariance
+// double x_imu;  // Filtered temperature
+// double p_imu;  // Initial error covariance
 
 // Process noise and measurement noise
-double q_temp; // Process noise covariance
-double r_temp; // Measurement noise covariance
-double q_imu;  // Process noise covariance
-double r_imu;  // Measurement noise covariance
+// double q_temp; // Process noise covariance
+// double r_temp; // Measurement noise covariance
+// double q_imu;  // Process noise covariance
+// double r_imu;  // Measurement noise covariance
+
+double turbidity_v;//difference in turbidity
 
 // Keeping track of time
 double curr_time = 0.0f;
@@ -194,34 +200,34 @@ Outputs:     (double)x_temp, (double)p_temp
 Parameters:  (double)x_k, (double)p_k, (double)q, (double)r, (double)input
 Returns:     void
 */
-void kalman_filter(double x_k, double p_k, double q, double r, double input, bool tempTrue)
-{
-  // Kalman filter prediction
-  double x_k_minus = x_k;     // Predicted next state estimate
-  double p_k_minus = p_k + q; // Predicted error covariance for the next state
+// void kalman_filter(double x_k, double p_k, double q, double r, double input, bool tempTrue)
+// {
+//   // Kalman filter prediction
+//   double x_k_minus = x_k;     // Predicted next state estimate
+//   double p_k_minus = p_k + q; // Predicted error covariance for the next state
 
-  // Kalman filter update
+//   // Kalman filter update
 
-  /* Kalman gain: calculated based on the predicted error covariance
-  and the measurement noise covariance, used to update the
-  state estimate (x_k) and error covariance (p_k) */
-  double k = p_k_minus / (p_k_minus + r); // Kalman gain
+//   /* Kalman gain: calculated based on the predicted error covariance
+//   and the measurement noise covariance, used to update the
+//   state estimate (x_k) and error covariance (p_k) */
+//   double k = p_k_minus / (p_k_minus + r); // Kalman gain
 
-  // Comparison with actual sensor reading
-  x_k = x_k_minus + k * (input - x_k_minus); // Updated state estimate
-  p_k = (1 - k) * p_k_minus;                 // Updated error covariance
+//   // Comparison with actual sensor reading
+//   x_k = x_k_minus + k * (input - x_k_minus); // Updated state estimate
+//   p_k = (1 - k) * p_k_minus;                 // Updated error covariance
 
-  if (tempTrue) // Update state for temperature sensor or IMU accordingly
-  {
-    x_temp = x_k;
-    p_temp = p_k;
-  }
-  else
-  {
-    x_imu = x_k;
-    p_imu = p_k;
-  }
-}
+//   if (tempTrue) // Update state for temperature sensor or IMU accordingly
+//   {
+//     x_temp = x_k;
+//     p_temp = p_k;
+//   }
+//   else
+//   {
+//     x_imu = x_k;
+//     p_imu = p_k;
+//   }
+// }
 
 /*
 Description: Subroutine to set the desired reports on the IMU.
@@ -317,16 +323,16 @@ Outputs:     (double)temperature_c
 Parameters:  void
 Returns:     void
 */
-void fetch_temp(void)
-{
-  temperature_c = temp_sensors.getTempCByIndex(0); // Get temperature in Celsius
+// void fetch_temp(void)
+// {
+//   temperature_c = temp_sensors.getTempCByIndex(0); // Get temperature in Celsius
 
-  // Update temperature kalman filter
-  kalman_filter(x_temp, p_temp, q_temp, r_temp, temperature_c, true);
+//   // Update temperature kalman filter
+//   kalman_filter(x_temp, p_temp, q_temp, r_temp, temperature_c, true);
 
-  temp_diff = x_temp - init_temp; // Update delta temperature
-  last_fetch = true;              // Raise fetch flag to signal ready
-}
+//   temp_diff = x_temp - init_temp; // Update delta temperature
+//   last_fetch = true;              // Raise fetch flag to signal ready
+// }
 
 /*
 Description: Subroutine to unwrap yaw angle to prevent discontinuities in the function over time.
@@ -395,15 +401,18 @@ void setup(void)
   start_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2, 255);
   start_stir(PROP_STIR_PWM_1, PROP_STIR_PWM_2, 255);
 
-  temp_sensors.begin();                     // Initialize the DS18B20 sensor
-  temp_sensors.setResolution(11);           // Reduce resolution for faster polling
-  temp_sensors.requestTemperatures();       // Request temperature from all devices on the bus
-  temp_sensors.setWaitForConversion(false); // Disable blocking to allow multitasking
+  // temp_sensors.begin();                     // Initialize the DS18B20 sensor
+  // temp_sensors.setResolution(11);           // Reduce resolution for faster polling
+  // temp_sensors.requestTemperatures();       // Request temperature from all devices on the bus
+  // temp_sensors.setWaitForConversion(false); // Disable blocking to allow multitasking
 
-  init_temp = temp_sensors.getTempCByIndex(0); // Get temperature in Celsius
-  temperature_c = init_temp;                   // Initialize temperature variable
-  last_fetch = true;                           // Raise fetch flag to signal ready
-  temp_diff = 0.0;                             // Initialize delta temperature to zero
+  // init_temp = temp_sensors.getTempCByIndex(0); // Get temperature in Celsius
+  // temperature_c = init_temp;                   // Initialize temperature variable
+  // last_fetch = true;                           // Raise fetch flag to signal ready
+  // temp_diff = 0.0;                             // Initialize delta temperature to zero
+  analogReference(EXTERNAL);
+
+  pinMode(TURBIDITY_SENS, INPUT);
 
   bno08x.begin_I2C();
   set_reports();
@@ -490,24 +499,31 @@ void loop(void)
   prev_time = curr_time;
 
   // Only poll if flag indicates ready state
-  if (last_fetch)
-  {
-    temp_sensors.requestTemperatures(); // Request temperature from all devices on the bus
+  // if (last_fetch)
+  // {
+  //   temp_sensors.requestTemperatures(); // Request temperature from all devices on the bus
 
-    last_fetch = false; // System is no longer ready, lower flag
-  }
-  else if (temp_sensors.isConversionComplete())
-  {
-    fetch_temp(); // Fetch temperature after conversion, otherwise continue loop
-  }
+  //   last_fetch = false; // System is no longer ready, lower flag
+  // }
+  // else if (temp_sensors.isConversionComplete())
+  // {
+  //   fetch_temp(); // Fetch temperature after conversion, otherwise continue loop
+  // }
 
   curr_time = (time_us_32() - start_time) / 1000000.0f; // Taken to check time against first measurement
 
   pid_loop(); // Run PID controller
 
-  temp_change = 0.185f * curr_time - 4.5f; // Calculate temperature change
+  //temp_change = 0.185f * curr_time - 4.5f; // Calculate temperature change
 
-  if (temp_diff <= temp_change)
+  //calculate turbidity(avg of 5 measurements)
+  turbidity_v = 0.0f;
+  for (int i = 0; i < 5; i++){
+    turbidity_v = (double)analogRead(TURBIDITY_SENS) * 4095.0f / 1023.0f;
+  }
+  turbidity_v = turbidity_v / 5.0f * 2.0f;
+  
+  if (TURB_THRESHOLD <= turbidity_v)
   {
     // Stop driving
     stop_driving();
@@ -519,4 +535,5 @@ void loop(void)
     while (1)
       ; // Do nothing for remainder of uptime
   }
+
 }
