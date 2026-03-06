@@ -719,7 +719,7 @@ void loop(void)
 
   // If outside of 3-14V range of > 1A current draw then stop
   if(busVoltage > 14 || busVoltage < 3 || current_mA > 1000) {
-    pixel.setPixelColor(255, 0, 0, 0); // Turn LED to red
+    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
     pixel.show();
 
     stop_driving();
