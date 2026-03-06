@@ -14,6 +14,7 @@ More information is available in the readme.
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
 #include "hardware/timer.h"
+#include <Wire.h>
 
 #define NUM_LEDS 1 // Status LED
 
@@ -38,6 +39,8 @@ More information is available in the readme.
 #define BRAK_TEMP_SENS A1 // Pin for the teperature sensor data line
 
 #define BNO08X_RESET -1 // No reset pin for IMU over I2C, only enabled for SPI
+
+#define A219_I2C 0x40 // I2C address for current/voltage sensor
 
 // Struct for Euler Angles
 struct euler_t
@@ -362,6 +365,45 @@ void unwrap_yaw(void)
 }
 
 /*
+Description: Helper function to write value to register over I2C
+Inputs: void
+Outputs: void
+Parameters: address (unsigned 8-bit), reg (unsigned 8-bit), value (unsigned 16-bit)
+Returns: void
+*/
+void writeRegister(uint8_t address, uint8_t reg, uint16_t value) {
+  Wire.beginTransmission(address);
+
+  Wire.write(reg);
+  Wire.write((value >> 8) & 0xFF); // MSB
+  Wire.write(value & 0xFF); // LSB
+
+  Wire.endTransmission();
+}
+
+/*
+Description: Helper function to read value from register over I2C
+Inputs: void
+Outputs: void
+Parameters: address (unsigned 8-bit), reg (unsigned 8-bit)
+Returns: 2 bytes of data
+*/
+uint16_t readRegister(uint8_t address, uint8_t reg) {
+  Wire.beginTransmission(address);
+  Wire.write(reg);
+  Wire.endTransmission();
+
+  Wire.requestFrom(address, (uint8_t)2); // Request 2 bytes
+  if(Wire.available() >= 2) { // If data available then return it
+    uint16_t value = Wire.read() << 8;
+    value |= Wire.read();
+    return value;
+  }
+
+  return 0; // Otherwise return 0
+}
+
+/*
 Description: Arduino setup subroutine.
 Inputs:      void
 Outputs:     void
@@ -370,6 +412,46 @@ Returns:     void
 */
 void setup(void)
 {
+
+  // Intitalize Voltage/Current Sensor
+  Wire.begin();
+
+  /*
+  Write to config register (0x00)
+  Sets it to 16V bus range
+  Gain /4
+  12 bit ADC
+  Continuous Mode
+  */
+  // 8-sample averaging
+  // Needs about 5ms to process next batch of samples
+  writeRegister(INA219_ADDR, 0x00, 0x15DF);
+
+  /*
+  Write to calibration register (0x05)
+  Assumes 0.1 Ohm resistor and 2.0A max current (0.1 mA per bit)
+  Uses formula 0.04096/(Resistor*Current_Per_Bit)
+  Writes 4096 in this case
+  */
+  writeRegister(A219_I2C, 0x05, 0x1000);
+
+  // --- READ BUS VOLTAGE (0x02) ---
+  uint16_t rawBus = readRegister(A219_I2C, 0x02);
+  // Shift right 3 bits to remove status flags, then multiply by 4mV
+  float busVoltage = (rawBus >> 3) * 0.004;
+
+  // --- READ CURRENT (0x04) ---
+  int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
+  // Multiply by calculated LSB (0.1mA)
+  float current_mA = rawCurrent * 0.1;
+
+  // Wait for busVolatge to surpass 7V
+  while(busVoltage < 7) {
+    rawBus = readRegister(A219_I2C, 0x02);
+    busVoltage = (rawBus >> 3) * 0.004;
+  }
+
+
   // Indicate status to be initialized
   pixel.begin();
   pixel.setBrightness(255);
@@ -486,6 +568,25 @@ Returns:     void
 void loop(void)
 {
   drive_forward(); // Start drive
+
+  uint16_t rawBus = readRegister(A219_I2C, 0x02);
+  double busVoltage = (rawBus >> 3) * 0.004;
+
+  int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
+  double current_mA = rawCurrent * 0.1;
+
+  // If outside of 3-14V range of > 1A current draw then stop
+  if(busVoltage > 14 || busVoltage < 3 || current_mA > 1000) {
+    pixel.setPixelColor(255, 0, 0, 0); // Turn LED to red
+    pixel.show();
+
+    stop_driving();
+
+    while (1)
+      ; // Do nothing for remainder of uptime
+  }
+
+  // delay(5) If needed since sensor needs about 5ms to process 8 samples
 
   prev_time = curr_time;
 

@@ -711,8 +711,6 @@ void loop(void)
   dist_left_m = (double)left_drive.count() / PPR * WHEEL_CIRCUMFERENCE_M;
   dist_right_m = (double)right_drive.count() / PPR * WHEEL_CIRCUMFERENCE_M;
 
-  Wire.begin();
-
   uint16_t rawBus = readRegister(A219_I2C, 0x02);
   double busVoltage = (rawBus >> 3) * 0.004;
 
@@ -729,6 +727,9 @@ void loop(void)
     while (1)
       ; // Do nothing for remainder of uptime
   }
+
+  // delay(5) If needed since sensor needs about 5ms to process 8 samples
+
 
   // Update data array
   data[0] = temperature_c;
