@@ -508,7 +508,9 @@ void setup(void)
   12 bit ADC
   Continuous Mode
   */
-  writeRegister(A219_I2C, 0x00, 0x119F);
+  // 8-sample averaging
+  // Needs about 5ms to process next batch of samples
+  writeRegister(INA219_ADDR, 0x00, 0x15DF);
 
   /*
   Write to calibration register (0x05)
@@ -716,6 +718,17 @@ void loop(void)
 
   int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
   double current_mA = rawCurrent * 0.1;
+
+  // If outside of 3-14V range of > 1A current draw then stop
+  if(busVoltage > 14 || busVoltage < 3 || current_mA > 1000) {
+    pixel.setPixelColor(255, 0, 0, 0); // Turn LED to red
+    pixel.show();
+
+    stop_driving();
+
+    while (1)
+      ; // Do nothing for remainder of uptime
+  }
 
   // Update data array
   data[0] = temperature_c;
