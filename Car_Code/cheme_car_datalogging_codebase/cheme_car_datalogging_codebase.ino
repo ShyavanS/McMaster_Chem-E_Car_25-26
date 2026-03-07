@@ -25,7 +25,6 @@ information is available in the readme.
 #include "SdFat.h"
 #include <BackgroundAudio.h>
 #include <PWMAudio.h>
-#include <SPI.h>
 
 #define NUM_LEDS 1 // Status LED
 
@@ -48,10 +47,8 @@ information is available in the readme.
 #define RIGHT_SERVO_PWM SCK
 
 // Define encoder pins
-//#define LEFT_ENC_A 25
-//#define LEFT_ENC_B MISO
 #define ENC_A A0
-#define ENC_B A2
+#define ENC_B A1
 
 #define BRAK_TEMP_SENS A1 // Pin for the teperature sensor data line
 
@@ -61,7 +58,7 @@ information is available in the readme.
 #define SD_CS_PIN 23
 
 // Define audio output pin
-#define AUDIO_OUT 20
+#define AUDIO_OUT 12
 
 using namespace encoder;
 
@@ -84,7 +81,6 @@ Servo left_servo;
 Servo right_servo;
 
 // Create encoder object using only A & B pins, not index, assign to pio0, sm 1 & 3 in reversed direction w/ microstepping for smoothness
-//Encoder left_drive(PIO pio0, 1, {LEFT_ENC_A, LEFT_ENC_B}, PIN_UNUSED, REVERSED_DIR, PPR, true);
 Encoder drive_encoder(PIO pio0, 3, {ENC_A, ENC_B}, PIN_UNUSED, REVERSED_DIR, PPR, true);
 
 // Create BNO085 instance
@@ -132,7 +128,6 @@ double init_yaw = 0.0; // initial yaw angle
 double yaw_diff = 0.0; // yaw angle difference
 
 // Wheel distance variables
-//double dist_left_m = 0.0;
 double drive_dist_m = 0.0;
 
 // Delta temperature
@@ -475,7 +470,7 @@ Returns:     void
 void send_audio(void)
 {
   // If an audio file is open and the decoder buffer has enough space for more audio data
-  while (audio_file && mp3.availableForWrite() > 512)
+  while (audio_file && mp3.availableForWrite() > 512) 
   {
     // read 512 bytes from the audio file and send to the decoder
     int len = audio_file.read(filebuff, 512);
@@ -629,9 +624,7 @@ void setup(void)
   yaw_diff = yaw - init_yaw;
 
   // Initialize encoders & zero before starting
-  //left_drive.init();
   drive_encoder.init();
-  //left_drive.zero();
   drive_encoder.zero();
 
   curr_time = (time_us_32() - start_time) / 1000000.0f; // Taken to update prev_time
@@ -655,13 +648,13 @@ void loop(void)
   if (!audio_started) // If the audio hasn't started playing
   {
     audio_file = sd.open(start_music, FILE_READ); // Open corresponding SD card mp3 file
-    if (audio_file) // If the audio file open successfully
+    if (audio_file) // If the audio file opened successfully
     {
       audio_started = true; // Flag that the audio file has been opened
     }
   }
 
-  if (audio_started && audio_file) //if the audio file has been opened and is still open send an audio data chunk
+  if (audio_started && audio_file) // If the audio file has been opened and is still open, send an audio data chunk
   {
     send_audio();
   }
@@ -687,7 +680,6 @@ void loop(void)
   pid_loop(); // Run PID controller
 
   // Convert encoder counts to distance
-  //dist_left_m = (double)left_drive.count() / PPR * WHEEL_CIRCUMFERENCE_M;
   drive_dist_m = (double)drive_encoder.count() / PPR * WHEEL_CIRCUMFERENCE_M;
 
   // Update data array
@@ -699,7 +691,6 @@ void loop(void)
   data[5] = yaw_diff;
   data[6] = x_imu;
   data[7] = drive_dist_m;
-  //data[8] = dist_right_m;
 
   // Open csv file
   data_file = sd.open(file_name, FILE_WRITE);
