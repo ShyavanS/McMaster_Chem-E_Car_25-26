@@ -1,0 +1,33 @@
+/*
+ * Created by ArduinoGetStarted.com
+ *
+ * This example code is in the public domain
+ *
+ * Tutorial page: https://arduinogetstarted.com/reference/library/arduino-sd.open
+ */
+
+#include <SD.h>
+
+#define PIN_SPI_CS 4
+
+File file;
+
+void setup() {
+  Serial.begin(9600);
+
+  if (!SD.begin(PIN_SPI_CS)) {
+    Serial.println("SD CARD FAILED, OR NOT PRESENT!");
+    while (1); // don't do anything more:
+  }
+
+  file = SD.open("arduino.txt", FILE_READ);
+  if (file) {
+    Serial.println("SD Card: file is opened");
+    file.close();
+  } else {
+    Serial.println("SD Card: file is failed to open");
+  }
+}
+
+void loop() {
+}

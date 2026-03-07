@@ -14,6 +14,9 @@ More information is available in the readme.
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
 #include "hardware/timer.h"
+#include "SdFat.h"
+#include <BackgroundAudio.h>
+#include <PWMAudio.h>
 
 #define NUM_LEDS 1 // Status LED
 
@@ -39,6 +42,12 @@ More information is available in the readme.
 
 #define BNO08X_RESET -1 // No reset pin for IMU over I2C, only enabled for SPI
 
+// Define chip select pin for SD card
+#define SD_CS_PIN 23
+
+// Define audio output pin
+#define AUDIO_OUT 12
+
 // Struct for Euler Angles
 struct euler_t
 {
@@ -61,6 +70,22 @@ OneWire one_wire(BRAK_TEMP_SENS);          // Create a OneWire instance to commu
 DallasTemperature temp_sensors(&one_wire); // Pass OneWire reference to Dallas Temperature sensor
 
 Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status LED
+
+// Define files
+SdFat sd;
+FsFile audio_file;
+String start_music = "start_music.mp3"; // placeholders for actual audio file names
+String stop_music = "stop_music.mp3";
+SdSpiConfig config(SD_CS_PIN, DEDICATED_SPI, SD_SCK_MHZ(16), &SPI1);
+String file_name;
+
+// Set up audio output using PWM
+PWMAudio pwm(AUDIO_OUT);
+BackgroundAudioMP3 mp3(pwm); // create the mp3 player object and decoder
+uint8_t filebuff[512]; // allocates 512 bytes of memory to temporarily store audio data before processing
+
+// Flag to check if audio started playing
+bool audio_started = false;
 
 // The target yaw angle to keep car straight
 const float GOAL_YAW = 0.0;
@@ -362,6 +387,29 @@ void unwrap_yaw(void)
 }
 
 /*
+Description: Send audio data chunks to the decoder and close file when done
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
+void send_audio(void)
+{
+  // If an audio file is open and the decoder buffer has enough space for more audio data
+  while (audio_file && mp3.availableForWrite() > 512) 
+  {
+    // read 512 bytes from the audio file and send to the decoder
+    int len = audio_file.read(filebuff, 512);
+    mp3.write(filebuff, len);
+
+    if (len!=512) // if the audio data was shorter than 512 bytes, we've reached the end of the file
+    {
+      audio_file.close();
+    }
+  }
+}
+
+/*
 Description: Arduino setup subroutine.
 Inputs:      void
 Outputs:     void
@@ -376,6 +424,8 @@ void setup(void)
   pixel.show();
   pixel.setPixelColor(0, 255, 0, 0);
   pixel.show();
+
+  sd.begin(config); // Initialize the SD card
 
   // Setting to drive motors output mode
   pinMode(LEFT_PWM_1, OUTPUT);
@@ -485,6 +535,21 @@ Returns:     void
 */
 void loop(void)
 {
+  // Play start music
+  if (!audio_started) // If the audio hasn't started playing
+  {
+    audio_file = sd.open(start_music, FILE_READ); // Open corresponding SD card mp3 file
+    if (audio_file) // If the audio file opened successfully
+    {
+      audio_started = true; // Flag that the audio file has been opened
+    }
+  }
+
+  if (audio_started && audio_file) // If the audio file has been opened and is still open, send an audio data chunk
+  {
+    send_audio();
+  }
+
   drive_forward(); // Start drive
 
   prev_time = curr_time;
@@ -515,6 +580,13 @@ void loop(void)
     // Indicate status to be finished
     pixel.setPixelColor(0, 0, 255, 0);
     pixel.show();
+
+    // Play stop music
+    audio_file = sd.open(stop_music, FILE_READ);
+    while(audio_file) //keep playing audio until file is closed
+    {
+      send_audio();
+    }
 
     while (1)
       ; // Do nothing for remainder of uptime
