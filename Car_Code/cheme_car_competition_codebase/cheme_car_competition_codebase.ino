@@ -17,11 +17,9 @@ More information is available in the readme.
 
 #define NUM_LEDS 1 // Status LED
 
-// Define drive motor pins
-#define LEFT_PWM_1 9
-#define LEFT_PWM_2 10
-#define RIGHT_PWM_1 12
-#define RIGHT_PWM_2 11
+// Define drive and brake SSR pins
+#define DRIVE_PIN 9
+#define BRAKE_PIN 13
 
 // Define the PWM pins for the stir bar motors
 #define BRAK_STIR_PWM_1 A3
@@ -32,8 +30,7 @@ More information is available in the readme.
 // Define servo pins
 #define BRAK_SERVO_PWM 13
 #define PROP_SERVO_PWM 4
-#define LEFT_SERVO_PWM MOSI
-#define RIGHT_SERVO_PWM SCK
+#define STEERING_SERVO_PWM MOSI
 
 #define BRAK_TEMP_SENS A1 // Pin for the teperature sensor data line
 
@@ -50,8 +47,7 @@ struct euler_t
 // Create servo objects
 Servo brak_servo;
 Servo prop_servo;
-Servo left_servo;
-Servo right_servo;
+Servo steering_servo;
 
 // Create BNO085 instance
 Adafruit_BNO08x bno08x(BNO08X_RESET);
@@ -123,18 +119,30 @@ const int MAX_OFFSET = 1024;
 const int YAW_REF = 90;
 
 /*
+Description: Subroutine to close both drive and brake SSR.
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
+
+void reset_ssr() {
+  digitalWrite(DRIVE_PIN, LOW);
+  digitalWrite(BRAKE_PIN, LOW);
+}
+
+/*
 Description: Subroutine to drive car forward.
 Inputs:      void
 Outputs:     void
 Parameters:  void
 Returns:     void
 */
-void drive_forward(void)
-{
-  digitalWrite(LEFT_PWM_1, HIGH);
-  digitalWrite(RIGHT_PWM_2, HIGH);
-  digitalWrite(LEFT_PWM_2, LOW);
-  digitalWrite(RIGHT_PWM_1, LOW);
+
+void drive_ssr() {
+  reset_ssr();
+  delay(10);
+  digitalWrite(DRIVE_PIN, HIGH);
 }
 
 /*
@@ -144,12 +152,11 @@ Outputs:     void
 Parameters:  void
 Returns:     void
 */
-void stop_driving(void)
-{
-  digitalWrite(LEFT_PWM_1, HIGH);
-  digitalWrite(RIGHT_PWM_2, HIGH);
-  digitalWrite(LEFT_PWM_2, HIGH);
-  digitalWrite(RIGHT_PWM_1, HIGH);
+
+void brake_ssr() {
+  reset_ssr();
+  delay(10);
+  digitalWrite(BRAKE_PIN, HIGH);
 }
 
 /*
@@ -306,8 +313,7 @@ void pid_loop(void)
   sum_error = max(min(sum_error + cbrt(error), MAX_OFFSET), -MAX_OFFSET);
 
   // Write to servos
-  left_servo.writeMicroseconds(SERVO_ANGLE - adj_pid_output);
-  right_servo.writeMicroseconds(SERVO_ANGLE - adj_pid_output);
+  steering_servo.writeMicroseconds(SERVO_ANGLE + adj_pid_output);
 }
 
 /*
@@ -377,13 +383,11 @@ void setup(void)
   pixel.setPixelColor(0, 255, 0, 0);
   pixel.show();
 
-  // Setting to drive motors output mode
-  pinMode(LEFT_PWM_1, OUTPUT);
-  pinMode(LEFT_PWM_2, OUTPUT);
-  pinMode(RIGHT_PWM_1, OUTPUT);
-  pinMode(RIGHT_PWM_2, OUTPUT);
+  // Setting to drive,brake motors output mode
+  pinMode(DRIVE_PIN, OUTPUT);
+  pinMode(BRAKE_PIN, OUTPUT);
 
-  stop_driving(); // Stop driving motors from any residual bootloader code
+  brake_ssr(); // Stop driving motors from any residual bootloader code
 
   // Initialize the stir motor pins as outputs
   pinMode(BRAK_STIR_PWM_1, OUTPUT);
@@ -442,14 +446,11 @@ void setup(void)
   brak_servo.attach(BRAK_SERVO_PWM, 400, 2600);
   brak_servo.writeMicroseconds(450);
   busy_wait_ms(2000);
-  left_servo.writeMicroseconds(1475);
-  left_servo.attach(LEFT_SERVO_PWM, 400, 2600);
-  left_servo.writeMicroseconds(1475);
+  steering_servo.writeMicroseconds(1475);
+  steering_servo.attach(STEERING_SERVO_PWM, 400, 2600);
+  steering_servo.writeMicroseconds(1475);
   busy_wait_ms(2000);
-  right_servo.writeMicroseconds(1475);
-  right_servo.attach(RIGHT_SERVO_PWM, 400, 2600);
-  right_servo.writeMicroseconds(1475);
-  busy_wait_ms(2000);
+ 
 
   // Dump reactants before starting drive
   servo_dump(prop_servo, 2500, 3000);
@@ -485,7 +486,7 @@ Returns:     void
 */
 void loop(void)
 {
-  drive_forward(); // Start drive
+  drive_ssr(); // Start drive
 
   prev_time = curr_time;
 
@@ -510,7 +511,7 @@ void loop(void)
   if (temp_diff <= temp_change)
   {
     // Stop driving
-    stop_driving();
+    brake_ssr();
 
     // Indicate status to be finished
     pixel.setPixelColor(0, 0, 255, 0);
