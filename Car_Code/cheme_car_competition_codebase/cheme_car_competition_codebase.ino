@@ -528,6 +528,7 @@ void setup(void)
 
   pixel.setPixelColor(0, 0, 0, 255); // Indicate setup complete status
   pixel.show();
+  
 }
 
 /*
@@ -569,7 +570,7 @@ void loop(void)
     // Indicate status to be finished
     pixel.setPixelColor(0, 0, 255, 0);
     pixel.show();
-
+    DoorSequence();
     while (1)
       ; // Do nothing for remainder of uptime
   }
