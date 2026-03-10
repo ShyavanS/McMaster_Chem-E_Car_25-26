@@ -14,6 +14,7 @@ More information is available in the readme.
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
 #include "hardware/timer.h"
+#include "pico/stdlib.h"
 
 #define NUM_LEDS 1 // Status LED
 
@@ -30,7 +31,7 @@ More information is available in the readme.
 // Define servo pins
 #define BRAK_SERVO_PWM 13
 #define PROP_SERVO_PWM 4
-#define STEERING_SERVO_PWM MOSI
+#define STEERING_SERVO_PWM 25
 
 #define BRAK_TEMP_SENS A1 // Pin for the teperature sensor data line
 
@@ -141,7 +142,7 @@ Returns:     void
 
 void drive_ssr() {
   reset_ssr();
-  delay(10);
+  busy_wait_ms(1);
   digitalWrite(DRIVE_PIN, HIGH);
 }
 
@@ -155,7 +156,7 @@ Returns:     void
 
 void brake_ssr() {
   reset_ssr();
-  delay(10);
+  busy_wait_ms(1);
   digitalWrite(BRAKE_PIN, HIGH);
 }
 

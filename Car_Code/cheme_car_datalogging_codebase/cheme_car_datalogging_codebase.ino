@@ -23,6 +23,7 @@ information is available in the readme.
 #include "encoder/encoder.cpp" // Modified to remove debounce delays, don't replace!
 #include "encoder/encoder.hpp" // Modified to remove debounce delays, don't replace!
 #include "SdFat.h"
+#include "pico/stdlib.h"
 
 #define NUM_LEDS 1 // Status LED
 
@@ -39,7 +40,7 @@ information is available in the readme.
 // Define servo pins
 #define BRAK_SERVO_PWM 13
 #define PROP_SERVO_PWM 4
-#define STEERING_SERVO_PWM MOSI
+#define STEERING_SERVO_PWM 25
 
 // Define encoder pins
 #define LEFT_ENC_A 25
@@ -189,7 +190,7 @@ Returns:     void
 
 void drive_ssr() {
   reset_ssr();
-  delay(10);
+  busy_wait_ms(1);
   digitalWrite(DRIVE_PIN, HIGH);
 }
 
@@ -203,7 +204,7 @@ Returns:     void
 
 void brake_ssr() {
   reset_ssr();
-  delay(10);
+  busy_wait_ms(1);
   digitalWrite(BRAKE_PIN, HIGH);
 }
 
