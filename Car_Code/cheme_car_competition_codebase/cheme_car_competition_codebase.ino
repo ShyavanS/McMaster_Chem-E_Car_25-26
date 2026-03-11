@@ -13,11 +13,11 @@ More information is available in the readme.
 #include <DallasTemperature.h>
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
-#include "hardware/timer.h"
 #include <Wire.h>
 #include "SdFat.h"
 #include <BackgroundAudio.h>
 #include <PWMAudio.h>
+#include "hardware/timer.h"
 
 #define NUM_LEDS 1 // Status LED
 
@@ -44,15 +44,10 @@ More information is available in the readme.
 #define AUXDC_PWM_2 24
 
 #define BRAK_TEMP_SENS A1 // Pin for the teperature sensor data line
-
-#define BNO08X_RESET -1 // No reset pin for IMU over I2C, only enabled for SPI
-
-#define A219_I2C 0x40 // I2C address for current/voltage sensor
-// Define chip select pin for SD card
-#define SD_CS_PIN 23
-
-// Define audio output pin
-#define AUDIO_OUT 12
+#define BNO08X_RESET -1   // No reset pin for IMU over I2C, only enabled for SPI
+#define A219_I2C 0x40     // I2C address for current/voltage sensor
+#define SD_CS_PIN 23      // Define chip select pin for SD card
+#define AUDIO_OUT 12      // Define audio output pin
 
 // Struct for Euler Angles
 struct euler_t
@@ -69,7 +64,12 @@ Servo left_servo;
 Servo right_servo;
 
 // Enumeration for door commands
-enum DoorCmd { DOOR_STOP, DOOR_OPEN, DOOR_CLOSE };
+enum DoorCmd
+{
+  DOOR_STOP,
+  DOOR_OPEN,
+  DOOR_CLOSE
+};
 
 // Create BNO085 instance
 Adafruit_BNO08x bno08x(BNO08X_RESET);
@@ -91,7 +91,7 @@ String file_name;
 // Set up audio output using PWM
 PWMAudio pwm(AUDIO_OUT);
 BackgroundAudioMP3 mp3(pwm); // create the mp3 player object and decoder
-uint8_t filebuff[512]; // allocates 512 bytes of memory to temporarily store audio data before processing
+uint8_t filebuff[512];       // allocates 512 bytes of memory to temporarily store audio data before processing
 
 // Flag to check if audio started playing
 bool audio_started = false;
@@ -230,20 +230,20 @@ Returns:     void
 */
 void DoorMotor(DoorCmd cmd, int speed)
 {
-  switch(cmd)
+  switch (cmd)
   {
-    case DOOR_STOP:
-      analogWrite(AUXDC_PWM_1, 0);
-      analogWrite(AUXDC_PWM_2, 0);
-      break;
-    case DOOR_OPEN:
-      analogWrite(AUXDC_PWM_1, speed);
-      analogWrite(AUXDC_PWM_2, 0);
-      break;
-    case DOOR_CLOSE:
-      analogWrite(AUXDC_PWM_1, 0);
-      analogWrite(AUXDC_PWM_2, speed);
-      break;
+  case DOOR_STOP:
+    analogWrite(AUXDC_PWM_1, 0);
+    analogWrite(AUXDC_PWM_2, 0);
+    break;
+  case DOOR_OPEN:
+    analogWrite(AUXDC_PWM_1, speed);
+    analogWrite(AUXDC_PWM_2, 0);
+    break;
+  case DOOR_CLOSE:
+    analogWrite(AUXDC_PWM_1, 0);
+    analogWrite(AUXDC_PWM_2, speed);
+    break;
   }
 }
 
@@ -256,16 +256,16 @@ Returns:     void
 */
 void DoorSequence(int speed, int closedelay, int opendelay, int holddelay)
 {
-    DoorMotor(DOOR_OPEN, speed);    // Set motor to open
-    busy_wait_ms(opendelay);        // Wait how many ms the motor needs to operate for doors to open
+  DoorMotor(DOOR_OPEN, speed); // Set motor to open
+  busy_wait_ms(opendelay);     // Wait how many ms the motor needs to operate for doors to open
 
-    DoorMotor(DOOR_STOP, 0);        // Stop motor to hold
-    busy_wait_ms(holddelay);        // Wait how many ms the door needs to stay open
+  DoorMotor(DOOR_STOP, 0); // Stop motor to hold
+  busy_wait_ms(holddelay); // Wait how many ms the door needs to stay open
 
-    DoorMotor(DOOR_CLOSE, speed);   // Set motor to close
-    busy_wait_ms(closedelay);       // Wait how many ms the motor needs to operate for doors to close 
-    
-    DoorMotor(DOOR_STOP, 0);        // Stop motor to finish operation
+  DoorMotor(DOOR_CLOSE, speed); // Set motor to close
+  busy_wait_ms(closedelay);     // Wait how many ms the motor needs to operate for doors to close
+
+  DoorMotor(DOOR_STOP, 0); // Stop motor to finish operation
 }
 
 /*
@@ -449,12 +449,13 @@ Outputs: void
 Parameters: address (unsigned 8-bit), reg (unsigned 8-bit), value (unsigned 16-bit)
 Returns: void
 */
-void writeRegister(uint8_t address, uint8_t reg, uint16_t value) {
+void writeRegister(uint8_t address, uint8_t reg, uint16_t value)
+{
   Wire.beginTransmission(address);
 
   Wire.write(reg);
   Wire.write((value >> 8) & 0xFF); // MSB
-  Wire.write(value & 0xFF); // LSB
+  Wire.write(value & 0xFF);        // LSB
 
   Wire.endTransmission();
 }
@@ -466,19 +467,26 @@ Outputs: void
 Parameters: address (unsigned 8-bit), reg (unsigned 8-bit)
 Returns: 2 bytes of data
 */
-uint16_t readRegister(uint8_t address, uint8_t reg) {
+uint16_t readRegister(uint8_t address, uint8_t reg)
+{
   Wire.beginTransmission(address);
   Wire.write(reg);
   Wire.endTransmission();
 
   Wire.requestFrom(address, (uint8_t)2); // Request 2 bytes
-  if(Wire.available() >= 2) { // If data available then return it
+
+  // If data available then return it
+  if (Wire.available() >= 2)
+  {
     uint16_t value = Wire.read() << 8;
     value |= Wire.read();
     return value;
   }
 
   return 0; // Otherwise return 0
+}
+
+/*
 Description: Send audio data chunks to the decoder and close file when done
 Inputs:      void
 Outputs:     void
@@ -488,13 +496,14 @@ Returns:     void
 void send_audio(void)
 {
   // If an audio file is open and the decoder buffer has enough space for more audio data
-  while (audio_file && mp3.availableForWrite() > 512) 
+  while (audio_file && mp3.availableForWrite() > 512)
   {
     // read 512 bytes from the audio file and send to the decoder
     int len = audio_file.read(filebuff, 512);
     mp3.write(filebuff, len);
 
-    if (len!=512) // if the audio data was shorter than 512 bytes, we've reached the end of the file
+    // if the audio data was shorter than 512 bytes, we've reached the end of the file
+    if (len != 512)
     {
       audio_file.close();
     }
@@ -523,7 +532,7 @@ void setup(void)
   */
   // 8-sample averaging
   // Needs about 5ms to process next batch of samples
-  writeRegister(INA219_ADDR, 0x00, 0x15DF);
+  writeRegister(A219_I2C, 0x00, 0x15DF);
 
   /*
   Write to calibration register (0x05)
@@ -544,11 +553,11 @@ void setup(void)
   float current_mA = rawCurrent * 0.1;
 
   // Wait for busVolatge to surpass 7V
-  while(busVoltage < 7) {
+  while (busVoltage < 7)
+  {
     rawBus = readRegister(A219_I2C, 0x02);
     busVoltage = (rawBus >> 3) * 0.004;
   }
-
 
   // Indicate status to be initialized
   pixel.begin();
@@ -656,7 +665,6 @@ void setup(void)
 
   pixel.setPixelColor(0, 0, 0, 255); // Indicate setup complete status
   pixel.show();
-  
 }
 
 /*
@@ -669,16 +677,17 @@ Returns:     void
 void loop(void)
 {
   // Play start music
-  if (!audio_started) // If the audio hasn't started playing
+  if (!audio_started)
   {
     audio_file = sd.open(start_music, FILE_READ); // Open corresponding SD card mp3 file
-    if (audio_file) // If the audio file opened successfully
+    if (audio_file)                               // If the audio file opened successfully
     {
       audio_started = true; // Flag that the audio file has been opened
     }
   }
 
-  if (audio_started && audio_file) // If the audio file has been opened and is still open, send an audio data chunk
+  // If the audio file has been opened and is still open, send an audio data chunk
+  if (audio_started && audio_file)
   {
     send_audio();
   }
@@ -692,7 +701,8 @@ void loop(void)
   double current_mA = rawCurrent * 0.1;
 
   // If outside of 3-14V range of > 1A current draw then stop
-  if(busVoltage > 14 || busVoltage < 3 || current_mA > 1000) {
+  if (busVoltage > 14 || busVoltage < 3 || current_mA > 1000)
+  {
     pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
     pixel.show();
 
@@ -732,10 +742,13 @@ void loop(void)
     // Indicate status to be finished
     pixel.setPixelColor(0, 0, 255, 0);
     pixel.show();
-    DoorSequence();
+    DoorSequence(128, 1000, 1000, 1000); // Placeholders
+
     // Play stop music
     audio_file = sd.open(stop_music, FILE_READ);
-    while(audio_file) //keep playing audio until file is closed
+
+    // keep playing audio until file is closed
+    while (audio_file)
     {
       send_audio();
     }

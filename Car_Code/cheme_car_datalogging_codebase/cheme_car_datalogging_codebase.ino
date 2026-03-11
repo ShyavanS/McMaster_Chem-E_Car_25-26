@@ -19,13 +19,13 @@ information is available in the readme.
 #include <DallasTemperature.h>
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
-#include "hardware/timer.h"
-#include "encoder/encoder.cpp" // Modified to remove debounce delays, don't replace!
-#include "encoder/encoder.hpp" // Modified to remove debounce delays, don't replace!
 #include "SdFat.h"
 #include <Wire.h>
 #include <BackgroundAudio.h>
 #include <PWMAudio.h>
+#include "hardware/timer.h"
+#include "encoder/encoder.cpp" // Modified to remove debounce delays, don't replace!
+#include "encoder/encoder.hpp" // Modified to remove debounce delays, don't replace!
 
 #define NUM_LEDS 1 // Status LED
 
@@ -52,15 +52,10 @@ information is available in the readme.
 #define ENC_B A1
 
 #define BRAK_TEMP_SENS A1 // Pin for the teperature sensor data line
-
-#define BNO08X_RESET -1 // No reset pin for IMU over I2C, only enabled for SPI
-
-// Define chip select pin for SD card
-#define SD_CS_PIN 23
-
-#define A219_I2C 0x40 // I2C address for current/voltage sensor
-// Define audio output pin
-#define AUDIO_OUT 12
+#define BNO08X_RESET -1   // No reset pin for IMU over I2C, only enabled for SPI
+#define SD_CS_PIN 23      // Define chip select pin for SD card
+#define A219_I2C 0x40     // I2C address for current/voltage sensor
+#define AUDIO_OUT 12      // Define audio output pin
 
 using namespace encoder;
 
@@ -108,11 +103,10 @@ String file_name;
 // Set up audio output using PWM
 PWMAudio pwm(AUDIO_OUT);
 BackgroundAudioMP3 mp3(pwm); // create the mp3 player object and decoder
-uint8_t filebuff[512]; // allocates 512 bytes of memory to temporarily store audio data before processing
+uint8_t filebuff[512];       // allocates 512 bytes of memory to temporarily store audio data before processing
 
 // Flag to check if audio started playing
 bool audio_started = false;
-
 
 bool is_file_new = true; // Checks for new file
 
@@ -165,9 +159,8 @@ double curr_time = 0.0f;
 double prev_time = 0.0f;
 uint32_t start_time;
 
-const int DATA_SIZE = 11; // Number of items to log
-const int DATA_SIZE = 8; // Number of items to log
-double data[DATA_SIZE];  // Data array
+const int DATA_SIZE = 10; // Number of items to log
+double data[DATA_SIZE];   // Data array
 
 // PID loop variables
 double error = 0.0;      // Proportional error
@@ -462,7 +455,6 @@ void unwrap_yaw(void)
   }
 }
 
-
 /*
 Description: Send audio data chunks to the decoder and close file when done
 Inputs:      void
@@ -473,13 +465,14 @@ Returns:     void
 void send_audio(void)
 {
   // If an audio file is open and the decoder buffer has enough space for more audio data
-  while (audio_file && mp3.availableForWrite() > 512) 
+  while (audio_file && mp3.availableForWrite() > 512)
   {
     // read 512 bytes from the audio file and send to the decoder
     int len = audio_file.read(filebuff, 512);
     mp3.write(filebuff, len);
 
-    if (len!=512) // if the audio data was shorter than 512 bytes, we've reached the end of the file
+    // if the audio data was shorter than 512 bytes, we've reached the end of the file
+    if (len != 512)
     {
       audio_file.close();
       audio_started = false;
@@ -494,12 +487,13 @@ Outputs: void
 Parameters: address (unsigned 8-bit), reg (unsigned 8-bit), value (unsigned 16-bit)
 Returns: void
 */
-void writeRegister(uint8_t address, uint8_t reg, uint16_t value) {
+void writeRegister(uint8_t address, uint8_t reg, uint16_t value)
+{
   Wire.beginTransmission(address);
 
   Wire.write(reg);
   Wire.write((value >> 8) & 0xFF); // MSB
-  Wire.write(value & 0xFF); // LSB
+  Wire.write(value & 0xFF);        // LSB
 
   Wire.endTransmission();
 }
@@ -511,13 +505,17 @@ Outputs: void
 Parameters: address (unsigned 8-bit), reg (unsigned 8-bit)
 Returns: 2 bytes of data
 */
-uint16_t readRegister(uint8_t address, uint8_t reg) {
+uint16_t readRegister(uint8_t address, uint8_t reg)
+{
   Wire.beginTransmission(address);
   Wire.write(reg);
   Wire.endTransmission();
-
+  
   Wire.requestFrom(address, (uint8_t)2); // Request 2 bytes
-  if(Wire.available() >= 2) { // If data available then return it
+
+  // If data available then return it
+  if (Wire.available() >= 2)
+  {
     uint16_t value = Wire.read() << 8;
     value |= Wire.read();
     return value;
@@ -548,7 +546,7 @@ void setup(void)
   */
   // 8-sample averaging
   // Needs about 5ms to process next batch of samples
-  writeRegister(INA219_ADDR, 0x00, 0x15DF);
+  writeRegister(A219_I2C, 0x00, 0x15DF);
 
   /*
   Write to calibration register (0x05)
@@ -569,7 +567,8 @@ void setup(void)
   float current_mA = rawCurrent * 0.1;
 
   // Wait for busVolatge to surpass 7V
-  while(busVoltage < 7) {
+  while (busVoltage < 7)
+  {
     rawBus = readRegister(A219_I2C, 0x02);
     busVoltage = (rawBus >> 3) * 0.004;
   }
@@ -726,20 +725,21 @@ Returns:     void
 void loop(void)
 {
   // Play start music
-  if (!audio_started) // If the audio hasn't started playing
+  if (!audio_started)
   {
     audio_file = sd.open(start_music, FILE_READ); // Open corresponding SD card mp3 file
-    if (audio_file) // If the audio file opened successfully
+    if (audio_file)                               // If the audio file opened successfully
     {
       audio_started = true; // Flag that the audio file has been opened
     }
   }
 
-  if (audio_started && audio_file) // If the audio file has been opened and is still open, send an audio data chunk
+  // If the audio file has been opened and is still open, send an audio data chunk
+  if (audio_started && audio_file)
   {
     send_audio();
   }
-  
+
   drive_forward(); // Start drive
 
   prev_time = curr_time;
@@ -770,7 +770,8 @@ void loop(void)
   double current_mA = rawCurrent * 0.1;
 
   // If outside of 3-14V range of > 1A current draw then stop
-  if(busVoltage > 14 || busVoltage < 3 || current_mA > 1000) {
+  if (busVoltage > 14 || busVoltage < 3 || current_mA > 1000)
+  {
     pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
     pixel.show();
 
@@ -779,9 +780,6 @@ void loop(void)
     while (1)
       ; // Do nothing for remainder of uptime
   }
-
-  // delay(5) If needed since sensor needs about 5ms to process 8 samples
-
 
   // Update data array
   data[0] = temperature_c;
@@ -794,7 +792,6 @@ void loop(void)
   data[7] = drive_dist_m;
   data[8] = current_mA;
   data[9] = busVoltage;
-  
 
   // Open csv file
   data_file = sd.open(file_name, FILE_WRITE);
@@ -829,7 +826,9 @@ void loop(void)
 
     // Play stop music
     audio_file = sd.open(stop_music, FILE_READ);
-    while(audio_file) //keep playing audio until file is closed
+
+    // keep playing audio until file is closed
+    while (audio_file)
     {
       send_audio();
     }
