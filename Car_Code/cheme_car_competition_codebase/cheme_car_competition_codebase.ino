@@ -14,9 +14,9 @@ More information is available in the readme.
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
-#include "SdFat.h"
 #include <BackgroundAudio.h>
 #include <PWMAudio.h>
+#include "SdFat.h"
 #include "hardware/timer.h"
 
 #define NUM_LEDS 1 // Status LED

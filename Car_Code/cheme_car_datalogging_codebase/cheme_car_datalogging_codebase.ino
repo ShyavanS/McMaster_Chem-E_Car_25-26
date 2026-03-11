@@ -19,10 +19,10 @@ information is available in the readme.
 #include <DallasTemperature.h>
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
-#include "SdFat.h"
 #include <Wire.h>
 #include <BackgroundAudio.h>
 #include <PWMAudio.h>
+#include "SdFat.h"
 #include "hardware/timer.h"
 #include "encoder/encoder.cpp" // Modified to remove debounce delays, don't replace!
 #include "encoder/encoder.hpp" // Modified to remove debounce delays, don't replace!
