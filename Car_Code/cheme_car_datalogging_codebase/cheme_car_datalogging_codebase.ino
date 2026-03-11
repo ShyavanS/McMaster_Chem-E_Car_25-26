@@ -23,6 +23,7 @@ information is available in the readme.
 #include "encoder/encoder.cpp" // Modified to remove debounce delays, don't replace!
 #include "encoder/encoder.hpp" // Modified to remove debounce delays, don't replace!
 #include "SdFat.h"
+#include <Wire.h>
 #include <BackgroundAudio.h>
 #include <PWMAudio.h>
 
@@ -57,6 +58,7 @@ information is available in the readme.
 // Define chip select pin for SD card
 #define SD_CS_PIN 23
 
+#define A219_I2C 0x40 // I2C address for current/voltage sensor
 // Define audio output pin
 #define AUDIO_OUT 12
 
@@ -163,6 +165,7 @@ double curr_time = 0.0f;
 double prev_time = 0.0f;
 uint32_t start_time;
 
+const int DATA_SIZE = 11; // Number of items to log
 const int DATA_SIZE = 8; // Number of items to log
 double data[DATA_SIZE];  // Data array
 
@@ -485,6 +488,45 @@ void send_audio(void)
 }
 
 /*
+Description: Helper function to write value to register over I2C
+Inputs: void
+Outputs: void
+Parameters: address (unsigned 8-bit), reg (unsigned 8-bit), value (unsigned 16-bit)
+Returns: void
+*/
+void writeRegister(uint8_t address, uint8_t reg, uint16_t value) {
+  Wire.beginTransmission(address);
+
+  Wire.write(reg);
+  Wire.write((value >> 8) & 0xFF); // MSB
+  Wire.write(value & 0xFF); // LSB
+
+  Wire.endTransmission();
+}
+
+/*
+Description: Helper function to read value from register over I2C
+Inputs: void
+Outputs: void
+Parameters: address (unsigned 8-bit), reg (unsigned 8-bit)
+Returns: 2 bytes of data
+*/
+uint16_t readRegister(uint8_t address, uint8_t reg) {
+  Wire.beginTransmission(address);
+  Wire.write(reg);
+  Wire.endTransmission();
+
+  Wire.requestFrom(address, (uint8_t)2); // Request 2 bytes
+  if(Wire.available() >= 2) { // If data available then return it
+    uint16_t value = Wire.read() << 8;
+    value |= Wire.read();
+    return value;
+  }
+
+  return 0; // Otherwise return 0
+}
+
+/*
 Description: Arduino setup subroutine.
 Inputs:      void
 Outputs:     void
@@ -493,6 +535,45 @@ Returns:     void
 */
 void setup(void)
 {
+
+  // Intitalize Voltage/Current Sensor
+  Wire.begin();
+
+  /*
+  Write to config register (0x00)
+  Sets it to 16V bus range
+  Gain /4
+  12 bit ADC
+  Continuous Mode
+  */
+  // 8-sample averaging
+  // Needs about 5ms to process next batch of samples
+  writeRegister(INA219_ADDR, 0x00, 0x15DF);
+
+  /*
+  Write to calibration register (0x05)
+  Assumes 0.1 Ohm resistor and 2.0A max current (0.1 mA per bit)
+  Uses formula 0.04096/(Resistor*Current_Per_Bit)
+  Writes 4096 in this case
+  */
+  writeRegister(A219_I2C, 0x05, 0x1000);
+
+  // --- READ BUS VOLTAGE (0x02) ---
+  uint16_t rawBus = readRegister(A219_I2C, 0x02);
+  // Shift right 3 bits to remove status flags, then multiply by 4mV
+  float busVoltage = (rawBus >> 3) * 0.004;
+
+  // --- READ CURRENT (0x04) ---
+  int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
+  // Multiply by calculated LSB (0.1mA)
+  float current_mA = rawCurrent * 0.1;
+
+  // Wait for busVolatge to surpass 7V
+  while(busVoltage < 7) {
+    rawBus = readRegister(A219_I2C, 0x02);
+    busVoltage = (rawBus >> 3) * 0.004;
+  }
+
   // Indicate status to be initialized
   pixel.begin();
   pixel.setBrightness(255);
@@ -682,6 +763,26 @@ void loop(void)
   // Convert encoder counts to distance
   drive_dist_m = (double)drive_encoder.count() / PPR * WHEEL_CIRCUMFERENCE_M;
 
+  uint16_t rawBus = readRegister(A219_I2C, 0x02);
+  double busVoltage = (rawBus >> 3) * 0.004;
+
+  int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
+  double current_mA = rawCurrent * 0.1;
+
+  // If outside of 3-14V range of > 1A current draw then stop
+  if(busVoltage > 14 || busVoltage < 3 || current_mA > 1000) {
+    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
+    pixel.show();
+
+    stop_driving();
+
+    while (1)
+      ; // Do nothing for remainder of uptime
+  }
+
+  // delay(5) If needed since sensor needs about 5ms to process 8 samples
+
+
   // Update data array
   data[0] = temperature_c;
   data[1] = x_temp;
@@ -690,7 +791,12 @@ void loop(void)
   data[4] = yaw;
   data[5] = yaw_diff;
   data[6] = x_imu;
-  data[7] = drive_dist_m;
+  data[7] = dist_left_m;
+  data[8] = dist_right_m;
+  data[9] = current_mA;
+  data[10] = busVoltage;
+  data[11] = drive_dist_m;
+  
 
   // Open csv file
   data_file = sd.open(file_name, FILE_WRITE);
@@ -701,7 +807,7 @@ void loop(void)
     // Write file header
     if (is_file_new)
     {
-      data_file.println("Time (s),Raw Temperature (deg C),Filtered Temperature (deg C),Delta T (deg C),Temperature Line (deg C),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Filtered Yaw Angle (deg),Wheel Distance (m)");
+      data_file.println("Time (s),Raw Temperature (deg C),Filtered Temperature (deg C),Delta T (deg C),Temperature Line (deg C),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Filtered Yaw Angle (deg),Left Wheel Distance (m),Right Wheel Distance (m), Current (mA), Voltage (V)");
       is_file_new = false;
     }
 
