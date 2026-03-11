@@ -791,11 +791,9 @@ void loop(void)
   data[4] = yaw;
   data[5] = yaw_diff;
   data[6] = x_imu;
-  data[7] = dist_left_m;
-  data[8] = dist_right_m;
-  data[9] = current_mA;
-  data[10] = busVoltage;
-  data[11] = drive_dist_m;
+  data[7] = drive_dist_m;
+  data[8] = current_mA;
+  data[9] = busVoltage;
   
 
   // Open csv file
@@ -807,7 +805,7 @@ void loop(void)
     // Write file header
     if (is_file_new)
     {
-      data_file.println("Time (s),Raw Temperature (deg C),Filtered Temperature (deg C),Delta T (deg C),Temperature Line (deg C),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Filtered Yaw Angle (deg),Left Wheel Distance (m),Right Wheel Distance (m), Current (mA), Voltage (V)");
+      data_file.println("Time (s),Raw Temperature (deg C),Filtered Temperature (deg C),Delta T (deg C),Temperature Line (deg C),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Filtered Yaw Angle (deg),Current (mA),Voltage (V),Wheel Distance (m)");
       is_file_new = false;
     }
 
