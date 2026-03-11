@@ -15,6 +15,9 @@ More information is available in the readme.
 #include <Adafruit_NeoPixel.h>
 #include "hardware/timer.h"
 #include <Wire.h>
+#include "SdFat.h"
+#include <BackgroundAudio.h>
+#include <PWMAudio.h>
 
 #define NUM_LEDS 1 // Status LED
 
@@ -36,11 +39,20 @@ More information is available in the readme.
 #define LEFT_SERVO_PWM MOSI
 #define RIGHT_SERVO_PWM SCK
 
+// Define Auxillary DC Motor Pins
+#define AUXDC_PWM_1 A3
+#define AUXDC_PWM_2 24
+
 #define BRAK_TEMP_SENS A1 // Pin for the teperature sensor data line
 
 #define BNO08X_RESET -1 // No reset pin for IMU over I2C, only enabled for SPI
 
 #define A219_I2C 0x40 // I2C address for current/voltage sensor
+// Define chip select pin for SD card
+#define SD_CS_PIN 23
+
+// Define audio output pin
+#define AUDIO_OUT 12
 
 // Struct for Euler Angles
 struct euler_t
@@ -56,6 +68,9 @@ Servo prop_servo;
 Servo left_servo;
 Servo right_servo;
 
+// Enumeration for door commands
+enum DoorCmd { DOOR_STOP, DOOR_OPEN, DOOR_CLOSE };
+
 // Create BNO085 instance
 Adafruit_BNO08x bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensor_value;
@@ -64,6 +79,22 @@ OneWire one_wire(BRAK_TEMP_SENS);          // Create a OneWire instance to commu
 DallasTemperature temp_sensors(&one_wire); // Pass OneWire reference to Dallas Temperature sensor
 
 Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status LED
+
+// Define files
+SdFat sd;
+FsFile audio_file;
+String start_music = "start_music.mp3"; // placeholders for actual audio file names
+String stop_music = "stop_music.mp3";
+SdSpiConfig config(SD_CS_PIN, DEDICATED_SPI, SD_SCK_MHZ(16), &SPI1);
+String file_name;
+
+// Set up audio output using PWM
+PWMAudio pwm(AUDIO_OUT);
+BackgroundAudioMP3 mp3(pwm); // create the mp3 player object and decoder
+uint8_t filebuff[512]; // allocates 512 bytes of memory to temporarily store audio data before processing
+
+// Flag to check if audio started playing
+bool audio_started = false;
 
 // The target yaw angle to keep car straight
 const float GOAL_YAW = 0.0;
@@ -188,6 +219,53 @@ void start_stir(int stir_pin_1, int stir_pin_2, int speed) // Start stirring mec
 {
   digitalWrite(stir_pin_1, LOW);  // For fast decay
   analogWrite(stir_pin_2, speed); // Set motor to speed obtained through testing
+}
+
+/*
+Description: Subroutine to command the motor
+Inputs:      void
+Outputs:     void
+Parameters:  (DoorCmd)cmd, (int)speed
+Returns:     void
+*/
+void DoorMotor(DoorCmd cmd, int speed)
+{
+  switch(cmd)
+  {
+    case DOOR_STOP:
+      analogWrite(AUXDC_PWM_1, 0);
+      analogWrite(AUXDC_PWM_2, 0);
+      break;
+    case DOOR_OPEN:
+      analogWrite(AUXDC_PWM_1, speed);
+      analogWrite(AUXDC_PWM_2, 0);
+      break;
+    case DOOR_CLOSE:
+      analogWrite(AUXDC_PWM_1, 0);
+      analogWrite(AUXDC_PWM_2, speed);
+      break;
+  }
+}
+
+/*
+Description: Subroutine to execute door sequence
+Inputs:      void
+Outputs:     void
+Parameters:  (int)speed, (int)closedelay, (int)opendelay, (int)holddelay
+Returns:     void
+*/
+void DoorSequence(int speed, int closedelay, int opendelay, int holddelay)
+{
+    DoorMotor(DOOR_OPEN, speed);    // Set motor to open
+    busy_wait_ms(opendelay);        // Wait how many ms the motor needs to operate for doors to open
+
+    DoorMotor(DOOR_STOP, 0);        // Stop motor to hold
+    busy_wait_ms(holddelay);        // Wait how many ms the door needs to stay open
+
+    DoorMotor(DOOR_CLOSE, speed);   // Set motor to close
+    busy_wait_ms(closedelay);       // Wait how many ms the motor needs to operate for doors to close 
+    
+    DoorMotor(DOOR_STOP, 0);        // Stop motor to finish operation
 }
 
 /*
@@ -401,6 +479,26 @@ uint16_t readRegister(uint8_t address, uint8_t reg) {
   }
 
   return 0; // Otherwise return 0
+Description: Send audio data chunks to the decoder and close file when done
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
+void send_audio(void)
+{
+  // If an audio file is open and the decoder buffer has enough space for more audio data
+  while (audio_file && mp3.availableForWrite() > 512) 
+  {
+    // read 512 bytes from the audio file and send to the decoder
+    int len = audio_file.read(filebuff, 512);
+    mp3.write(filebuff, len);
+
+    if (len!=512) // if the audio data was shorter than 512 bytes, we've reached the end of the file
+    {
+      audio_file.close();
+    }
+  }
 }
 
 /*
@@ -458,6 +556,8 @@ void setup(void)
   pixel.show();
   pixel.setPixelColor(0, 255, 0, 0);
   pixel.show();
+
+  sd.begin(config); // Initialize the SD card
 
   // Setting to drive motors output mode
   pinMode(LEFT_PWM_1, OUTPUT);
@@ -556,6 +656,7 @@ void setup(void)
 
   pixel.setPixelColor(0, 0, 0, 255); // Indicate setup complete status
   pixel.show();
+  
 }
 
 /*
@@ -567,6 +668,21 @@ Returns:     void
 */
 void loop(void)
 {
+  // Play start music
+  if (!audio_started) // If the audio hasn't started playing
+  {
+    audio_file = sd.open(start_music, FILE_READ); // Open corresponding SD card mp3 file
+    if (audio_file) // If the audio file opened successfully
+    {
+      audio_started = true; // Flag that the audio file has been opened
+    }
+  }
+
+  if (audio_started && audio_file) // If the audio file has been opened and is still open, send an audio data chunk
+  {
+    send_audio();
+  }
+
   drive_forward(); // Start drive
 
   uint16_t rawBus = readRegister(A219_I2C, 0x02);
@@ -616,6 +732,13 @@ void loop(void)
     // Indicate status to be finished
     pixel.setPixelColor(0, 0, 255, 0);
     pixel.show();
+    DoorSequence();
+    // Play stop music
+    audio_file = sd.open(stop_music, FILE_READ);
+    while(audio_file) //keep playing audio until file is closed
+    {
+      send_audio();
+    }
 
     while (1)
       ; // Do nothing for remainder of uptime
