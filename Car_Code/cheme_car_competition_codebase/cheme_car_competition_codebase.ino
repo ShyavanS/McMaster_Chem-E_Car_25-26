@@ -34,7 +34,7 @@ More information is available in the readme.
 #define PROP_STIR_PWM_2 5
 
 // Define servo pins
-#define BRAK_SERVO_PWM 13
+#define BRAK_SERVO_PWM 11
 #define PROP_SERVO_PWM 4
 #define LEFT_SERVO_PWM MOSI
 #define RIGHT_SERVO_PWM SCK
