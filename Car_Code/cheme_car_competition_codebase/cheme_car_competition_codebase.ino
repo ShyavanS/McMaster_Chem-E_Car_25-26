@@ -1,5 +1,5 @@
 // McMaster Chem-E Car Team
-// Chem-E Car Competition Code - 24/25
+// Chem-E Car Competition Code - 25/26
 
 /*
 The code to be used at the Chem-E Car competition to run the car. Makes use of
