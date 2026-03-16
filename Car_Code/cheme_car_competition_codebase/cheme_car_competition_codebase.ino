@@ -1,5 +1,5 @@
 // McMaster Chem-E Car Team
-// Chem-E Car Competition Code - 24/25
+// Chem-E Car Competition Code - 25/26
 
 /*
 The code to be used at the Chem-E Car competition to run the car. Makes use of
@@ -8,9 +8,7 @@ More information is available in the readme.
 */
 
 // Included libraries
-// #include <OneWire.h>
 #include <Adafruit_BNO08x.h>
-// #include <DallasTemperature.h>
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
 #include "hardware/timer.h"
@@ -58,8 +56,6 @@ Servo right_servo;
 Adafruit_BNO08x bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensor_value;
 
-// OneWire one_wire(BRAK_TEMP_SENS);          // Create a OneWire instance to communicate with the sensor
-// DallasTemperature temp_sensors(&one_wire); // Pass OneWire reference to Dallas Temperature sensor
 
 Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status LED
 
@@ -81,7 +77,6 @@ double yaw_diff = 0.0; // yaw angle difference
 
 double turbidity; // turbidity counts
 
-bool last_fetch;
 
 double x_imu;
 
@@ -249,8 +244,6 @@ void pid_loop(void)
   unwrap_yaw();
   yaw_diff = yaw - init_yaw;
 
-  //kalman_filter(x_imu, p_imu, q_imu, r_imu, yaw_diff, false); // Kalman filtering for IMU data
-
   // Update errors
   last_error = error;
   error = GOAL_YAW - x_imu;
@@ -270,7 +263,6 @@ Returns:     void
 */
 float fetch_turb(int samples)
 {
-  last_fetch = true;              // Raise fetch flag to signal ready
   // calculate turbidity(avg of # measurements)
   turbidity = 0.0f;
   for (int i = 0; i < samples; i++)
@@ -348,20 +340,8 @@ void setup(void)
   start_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2, 255);
   start_stir(PROP_STIR_PWM_1, PROP_STIR_PWM_2, 255);
 
-  // temp_sensors.begin();                     // Initialize the DS18B20 sensor
-  // temp_sensors.setResolution(11);           // Reduce resolution for faster polling
-  // temp_sensors.requestTemperatures();       // Request temperature from all devices on the bus
-  // temp_sensors.setWaitForConversion(false); // Disable blocking to allow multitasking
-
-  // init_temp = temp_sensors.getTempCByIndex(0); // Get temperature in Celsius
-  // temperature_c = init_temp;                   // Initialize temperature variable
-  last_fetch = true;                           // Raise fetch flag to signal ready
-  // temp_diff = 0.0;                             // Initialize delta temperature to zero
-  //analogReference(EXTERNAL);
   analogReadResolution(12);
-
   pinMode(TURBIDITY_SENS, INPUT);
-
   bno08x.begin_I2C();
   set_reports();
 
@@ -438,28 +418,16 @@ void loop(void)
 
   prev_time = curr_time;
 
-  //Only poll if flag indicates ready state
-  if (last_fetch)
-  {
-    //temp_sensors.requestTemperatures(); // Request temperature from all devices on the bus
-
-    last_fetch = false; // System is no longer ready, lower flag
-  }
-  else //if (temp_sensors.isConversionComplete())
-  {
-    turbidity = fetch_turb(20); // Fetch temperature after conversion, otherwise continue loop
-  }
+  
+  turbidity = fetch_turb(20);//fetch turbidity measurement
+  
 
   curr_time = (time_us_32() - start_time) / 1000000.0f; // Taken to check time against first measurement
 
   pid_loop(); // Run PID controller
 
-  // temp_change = 0.185f * curr_time - 4.5f; // Calculate temperature change
 
-  turbidity = fetch_turb(20);
-
-
-  if (TURB_THRESHOLD <= turbidity_v)
+  if (TURB_THRESHOLD <= turbidity)
   {
     // Stop driving
     stop_driving();
