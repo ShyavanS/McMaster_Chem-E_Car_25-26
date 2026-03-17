@@ -128,7 +128,7 @@ double curr_time = 0.0f;
 double prev_time = 0.0f;
 uint32_t start_time;
 
-const int DATA_SIZE = 6; // Number of items to log
+const int DATA_SIZE = 5; // Number of items to log
 double data[DATA_SIZE];  // Data array
 
 // PID loop variables
@@ -330,7 +330,7 @@ void pid_loop(void)
 
   // Update errors
   last_error = error;
-  error = GOAL_YAW - x_imu;
+  error = GOAL_YAW - yaw_diff;
   sum_error = max(min(sum_error + cbrt(error), MAX_OFFSET), -MAX_OFFSET);
 
   // Write to servos
@@ -348,7 +348,7 @@ Returns:     void
 float fetch_turb(int samples)
 {
   // calculate turbidity(avg of # measurements)
-  turbidity = 0.0f;
+  float turbidity = 0.0f;
   for (int i = 0; i < samples; i++)
   {
     turbidity += (double)analogRead(TURBIDITY_SENS);
@@ -553,9 +553,8 @@ void loop(void)
   data[0] = turbidity;
   data[1] = yaw;
   data[2] = yaw_diff;
-  data[3] = x_imu;
-  data[4] = dist_left_m;
-  data[5] = dist_right_m;
+  data[3] = dist_left_m;
+  data[4] = dist_right_m;
 
   // Open csv file
   data_file = sd.open(file_name, FILE_WRITE);

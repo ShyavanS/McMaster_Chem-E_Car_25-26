@@ -78,8 +78,6 @@ double yaw_diff = 0.0; // yaw angle difference
 double turbidity; // turbidity counts
 
 
-double x_imu;
-
 // Keeping track of time
 double curr_time = 0.0f;
 double prev_time = 0.0f;
@@ -246,7 +244,7 @@ void pid_loop(void)
 
   // Update errors
   last_error = error;
-  error = GOAL_YAW - x_imu;
+  error = GOAL_YAW - yaw_diff;
   sum_error = max(min(sum_error + cbrt(error), MAX_OFFSET), -MAX_OFFSET);
 
   // Write to servos
@@ -264,7 +262,7 @@ Returns:     void
 float fetch_turb(int samples)
 {
   // calculate turbidity(avg of # measurements)
-  turbidity = 0.0f;
+  float turbidity = 0.0f;
   for (int i = 0; i < samples; i++)
   {
     turbidity += (double)analogRead(TURBIDITY_SENS);
