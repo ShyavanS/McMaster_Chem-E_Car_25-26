@@ -8,9 +8,7 @@ More information is available in the readme.
 */
 
 // Included libraries
-#include <OneWire.h>
 #include <Adafruit_BNO08x.h>
-#include <DallasTemperature.h>
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
@@ -41,7 +39,8 @@ More information is available in the readme.
 #define AUXDC_PWM_1 A3
 #define AUXDC_PWM_2 24
 
-#define BRAK_TEMP_SENS A1 // Pin for the teperature sensor data line
+// #define TURBIDITY_SENS A2 // Pin for the turbidity sensor data line
+#define TURBIDITY_SENS A2
 #define BNO08X_RESET -1   // No reset pin for IMU over I2C, only enabled for SPI
 #define A219_I2C 0x40     // I2C address for current/voltage sensor
 #define SD_CS_PIN 23      // Define chip select pin for SD card
@@ -72,8 +71,6 @@ enum DoorCmd
 Adafruit_BNO08x bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensor_value;
 
-OneWire one_wire(BRAK_TEMP_SENS);          // Create a OneWire instance to communicate with the sensor
-DallasTemperature temp_sensors(&one_wire); // Pass OneWire reference to Dallas Temperature sensor
 
 Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status LED
 
@@ -99,6 +96,9 @@ const float GOAL_YAW = 0.0;
 // Rejection threshold for noise in IMU measurements
 const float REJECT_THRESHOLD = 3.0;
 
+// define turbidity threshold for braking(THIS IS A PLACEHOLDER)
+const float TURB_THRESHOLD = 3000.0; // THIS IS A PLACEHOLDER!!!
+
 // Define IMU variables
 double raw_yaw;        // raw yaw angle
 double prev_yaw;       // previous unwrapped yaw angle
@@ -106,30 +106,8 @@ double yaw;            // unwrapped yaw angle
 double init_yaw = 0.0; // initial yaw angle
 double yaw_diff = 0.0; // yaw angle difference
 
-// Delta temperature
-double temp_diff;
+double turbidity; // turbidity counts
 
-// Temperature change threshold
-double temp_change;
-
-// Last temperature fetched flag
-bool last_fetch;
-
-// variables to store temperature
-double temperature_c; // Current temperature
-double init_temp;     // Initial temperature for differential calculation
-
-// KALMAN FILTER variables
-double x_temp; // Filtered temperature
-double p_temp; // Initial error covariance
-double x_imu;  // Filtered temperature
-double p_imu;  // Initial error covariance
-
-// Process noise and measurement noise
-double q_temp; // Process noise covariance
-double r_temp; // Measurement noise covariance
-double q_imu;  // Process noise covariance
-double r_imu;  // Measurement noise covariance
 
 // Keeping track of time
 double curr_time = 0.0f;
@@ -277,42 +255,6 @@ void DoorSequence(int speed, int closedelay, int opendelay, int holddelay)
 }
 
 /*
-Description: Subroutine to implement Kalman filtering on temperature sensor data.
-Inputs:      void
-Outputs:     (double)x_temp, (double)p_temp
-Parameters:  (double)x_k, (double)p_k, (double)q, (double)r, (double)input
-Returns:     void
-*/
-void kalman_filter(double x_k, double p_k, double q, double r, double input, bool tempTrue)
-{
-  // Kalman filter prediction
-  double x_k_minus = x_k;     // Predicted next state estimate
-  double p_k_minus = p_k + q; // Predicted error covariance for the next state
-
-  // Kalman filter update
-
-  /* Kalman gain: calculated based on the predicted error covariance
-  and the measurement noise covariance, used to update the
-  state estimate (x_k) and error covariance (p_k) */
-  double k = p_k_minus / (p_k_minus + r); // Kalman gain
-
-  // Comparison with actual sensor reading
-  x_k = x_k_minus + k * (input - x_k_minus); // Updated state estimate
-  p_k = (1 - k) * p_k_minus;                 // Updated error covariance
-
-  if (tempTrue) // Update state for temperature sensor or IMU accordingly
-  {
-    x_temp = x_k;
-    p_temp = p_k;
-  }
-  else
-  {
-    x_imu = x_k;
-    p_imu = p_k;
-  }
-}
-
-/*
 Description: Subroutine to set the desired reports on the IMU.
 Inputs:      void
 Outputs:     void
@@ -387,11 +329,9 @@ void pid_loop(void)
   unwrap_yaw();
   yaw_diff = yaw - init_yaw;
 
-  kalman_filter(x_imu, p_imu, q_imu, r_imu, yaw_diff, false); // Kalman filtering for IMU data
-
   // Update errors
   last_error = error;
-  error = GOAL_YAW - x_imu;
+  error = GOAL_YAW - yaw_diff;
   sum_error = max(min(sum_error + cbrt(error), MAX_OFFSET), -MAX_OFFSET);
 
   // Write to servos
@@ -405,15 +345,16 @@ Outputs:     (double)temperature_c
 Parameters:  void
 Returns:     void
 */
-void fetch_temp(void)
+float fetch_turb(int samples)
 {
-  temperature_c = temp_sensors.getTempCByIndex(0); // Get temperature in Celsius
-
-  // Update temperature kalman filter
-  kalman_filter(x_temp, p_temp, q_temp, r_temp, temperature_c, true);
-
-  temp_diff = x_temp - init_temp; // Update delta temperature
-  last_fetch = true;              // Raise fetch flag to signal ready
+  // calculate turbidity(avg of # measurements)
+  float turbidity = 0.0f;
+  for (int i = 0; i < samples; i++)
+  {
+    turbidity += (double)analogRead(TURBIDITY_SENS);
+  }
+  turbidity = turbidity / (double)samples;
+  return turbidity;
 }
 
 /*
@@ -591,16 +532,8 @@ void setup(void)
   start_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2, 255);
   start_stir(PROP_STIR_PWM_1, PROP_STIR_PWM_2, 255);
 
-  temp_sensors.begin();                     // Initialize the DS18B20 sensor
-  temp_sensors.setResolution(11);           // Reduce resolution for faster polling
-  temp_sensors.requestTemperatures();       // Request temperature from all devices on the bus
-  temp_sensors.setWaitForConversion(false); // Disable blocking to allow multitasking
-
-  init_temp = temp_sensors.getTempCByIndex(0); // Get temperature in Celsius
-  temperature_c = init_temp;                   // Initialize temperature variable
-  last_fetch = true;                           // Raise fetch flag to signal ready
-  temp_diff = 0.0;                             // Initialize delta temperature to zero
-
+  analogReadResolution(12);
+  pinMode(TURBIDITY_SENS, INPUT);
   bno08x.begin_I2C();
   set_reports();
 
@@ -619,15 +552,7 @@ void setup(void)
     busy_wait_ms(200);
   }
 
-  // Initialize Kalman filter parameters
-  x_temp = init_temp; // Initial state estimate
-  p_temp = 0.1;       // Initial error covariance
-  q_temp = 0.01;      // Process noise covariance
-  r_temp = 0.5;       // Measurement noise covariance
-  x_imu = yaw_diff;   // Initial state estimate
-  p_imu = 0.007;      // Initial error covariance
-  q_imu = 0.005;      // Process noise covariance
-  r_imu = 0.01;       // Measurement noise covariance
+  
 
   // Initialize servos to default position
   prop_servo.writeMicroseconds(450);
@@ -678,7 +603,6 @@ Returns:     void
 */
 void loop(void)
 {
-
   // Play start music
   if (!audio_started)
   {
@@ -716,29 +640,42 @@ void loop(void)
       ; // Do nothing for remainder of uptime
   }
 
+  prev_time = curr_time;
+  
+  turbidity = fetch_turb(20);//fetch turbidity measurement
+
+  uint16_t rawBus = readRegister(A219_I2C, 0x02);
+  double busVoltage = (rawBus >> 3) * 0.004;
+
+  int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
+  double current_mA = rawCurrent * 0.1;
+
+  // If outside of 3-14V range of > 1A current draw then stop
+  if (busVoltage > 14 || busVoltage < 3 || current_mA > 1000)
+  {
+    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
+    pixel.show();
+
+    stop_driving();
+
+    while (1)
+      ; // Do nothing for remainder of uptime
+  }
+
   // delay(5) If needed since sensor needs about 5ms to process 8 samples
 
   prev_time = curr_time;
 
-  // Only poll if flag indicates ready state
-  if (last_fetch)
-  {
-    temp_sensors.requestTemperatures(); // Request temperature from all devices on the bus
-
-    last_fetch = false; // System is no longer ready, lower flag
-  }
-  else if (temp_sensors.isConversionComplete())
-  {
-    fetch_temp(); // Fetch temperature after conversion, otherwise continue loop
-  }
+  
+  turbidity = fetch_turb(20);//fetch turbidity measurement
+  
 
   curr_time = (time_us_32() - start_time) / 1000000.0f; // Taken to check time against first measurement
 
   pid_loop(); // Run PID controller
 
-  temp_change = 0.185f * curr_time - 4.5f; // Calculate temperature change
 
-  if (temp_diff <= temp_change)
+  if (TURB_THRESHOLD <= turbidity)
   {
     // Stop driving
     brake_ssr();
