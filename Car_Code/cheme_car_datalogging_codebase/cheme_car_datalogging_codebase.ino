@@ -20,13 +20,11 @@ information is available in the readme.
 #include <Wire.h>
 #include <BackgroundAudio.h>
 #include <PWMAudio.h>
-#include "SdFat.h"
+#include <SdFat.h>
 #include "hardware/timer.h"
+#include "pico/stdlib.h"
 #include "encoder/encoder.cpp" // Modified to remove debounce delays, don't replace!
 #include "encoder/encoder.hpp" // Modified to remove debounce delays, don't replace!
-#include "SdFat.h"
-#include "pico/stdlib.h"
-
 
 #define NUM_LEDS 1 // Status LED
 
@@ -37,19 +35,21 @@ information is available in the readme.
 // Define the PWM pins for the stir bar motors
 #define BRAK_STIR_PWM_1 A3
 #define BRAK_STIR_PWM_2 24
-#define PROP_STIR_PWM_1 6
-#define PROP_STIR_PWM_2 5
 
 // Define servo pins
 #define BRAK_SERVO_PWM 11
 #define PROP_SERVO_PWM 4
 #define STEERING_SERVO_PWM 25
 
+// Define Auxillary DC Motor Pins
+#define AUXDC_PWM_1 A3
+#define AUXDC_PWM_2 24
+
 // Define encoder pins
 #define ENC_A A0
 #define ENC_B A1
 
-//PREV BRAKING SENSOR WAS A1, NOW ITS A2
+// PREV BRAKING SENSOR WAS A1, NOW ITS A2
 #define TURBIDITY_SENS A2 // Pin for the turbidity sensor data line(right encoder and braking sensor switched pins)
 #define BNO08X_RESET -1   // No reset pin for IMU over I2C, only enabled for SPI
 #define SD_CS_PIN 23      // Define chip select pin for SD card
@@ -82,7 +82,6 @@ Encoder drive_encoder(PIO pio0, 3, {ENC_A, ENC_B}, PIN_UNUSED, REVERSED_DIR, PPR
 Adafruit_BNO08x bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensor_value;
 
-
 Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status LED
 
 // Define files
@@ -112,6 +111,9 @@ const float GOAL_YAW = 0.0;
 // Rejection threshold for noise in IMU measurements
 const float REJECT_THRESHOLD = 3.0;
 
+// define turbidity threshold for braking(THIS IS A PLACEHOLDER)
+const float TURB_THRESHOLD = 3000.0; // THIS IS A PLACEHOLDER!!!
+
 // Define IMU variables
 double raw_yaw;        // raw yaw angle
 double prev_yaw;       // previous unwrapped yaw angle
@@ -125,11 +127,7 @@ double drive_dist_m = 0.0;
 // Initialize run count for SD card file
 int run_count;
 
-
-double turbidity; //turbidity counts
-
-
-double x_imu;
+double turbidity; // turbidity counts
 
 // Keeping track of time
 double curr_time = 0.0f;
@@ -150,8 +148,6 @@ const float K_I = 0.0;  // Integral weighting
 const float K_D = 0.0;  // Derivative weighting
 
 // Offsets & constants for PID
-int left_offset = 0;
-int right_offset = 0;
 const int SERVO_ANGLE = 1475;
 const int MAX_OFFSET = 1024;
 const int YAW_REF = 90;
@@ -164,7 +160,8 @@ Parameters:  void
 Returns:     void
 */
 
-void reset_ssr() {
+void reset_ssr()
+{
   digitalWrite(DRIVE_PIN, LOW);
   digitalWrite(BRAKE_PIN, LOW);
 }
@@ -177,7 +174,8 @@ Parameters:  void
 Returns:     void
 */
 
-void drive_ssr() {
+void drive_ssr()
+{
   reset_ssr();
   busy_wait_ms(1);
   digitalWrite(DRIVE_PIN, HIGH);
@@ -191,7 +189,8 @@ Parameters:  void
 Returns:     void
 */
 
-void brake_ssr() {
+void brake_ssr()
+{
   reset_ssr();
   busy_wait_ms(1);
   digitalWrite(BRAKE_PIN, HIGH);
@@ -231,9 +230,6 @@ void start_stir(int stir_pin_1, int stir_pin_2, int speed)
   digitalWrite(stir_pin_1, LOW);  // For fast decay
   analogWrite(stir_pin_2, speed); // Set motor to speed obtained through testing
 }
-
-
-
 
 /*
 Description: Subroutine to print relevant data out to serial or a microSD card.
@@ -463,7 +459,7 @@ uint16_t readRegister(uint8_t address, uint8_t reg)
   Wire.beginTransmission(address);
   Wire.write(reg);
   Wire.endTransmission();
-  
+
   Wire.requestFrom(address, (uint8_t)2); // Request 2 bytes
 
   // If data available then return it
@@ -520,11 +516,11 @@ void setup(void)
   float current_mA = rawCurrent * 0.1;
 
   // Wait for busVolatge to surpass 7V
-  while (busVoltage < 7)
-  {
-    rawBus = readRegister(A219_I2C, 0x02);
-    busVoltage = (rawBus >> 3) * 0.004;
-  }
+  // while (busVoltage < 7)
+  // {
+  //   rawBus = readRegister(A219_I2C, 0x02);
+  //   busVoltage = (rawBus >> 3) * 0.004;
+  // }
 
   // Indicate status to be initialized
   pixel.begin();
@@ -569,15 +565,14 @@ void setup(void)
 
   brake_ssr(); // Stop driving motors from any residual bootloader code
 
-  // Initialize the stir motor pins as outputs
+  // Initialize the auxiliary DC motor pins as outputs
   pinMode(BRAK_STIR_PWM_1, OUTPUT);
   pinMode(BRAK_STIR_PWM_2, OUTPUT);
-  pinMode(PROP_STIR_PWM_1, OUTPUT);
-  pinMode(PROP_STIR_PWM_2, OUTPUT);
+  pinMode(AUXDC_PWM_1, OUTPUT);
+  pinMode(AUXDC_PWM_2, OUTPUT);
 
   // Setting the stir speed
   start_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2, 255);
-  start_stir(PROP_STIR_PWM_1, PROP_STIR_PWM_2, 255);
 
   analogReadResolution(12);
   bno08x.begin_I2C();
@@ -598,8 +593,6 @@ void setup(void)
     busy_wait_ms(200);
   }
 
-  
-
   // Initialize servos to default position
   prop_servo.writeMicroseconds(450);
   prop_servo.attach(PROP_SERVO_PWM, 400, 2600);
@@ -616,12 +609,12 @@ void setup(void)
 
   // Dump reactants before starting drive
   servo_dump(prop_servo, 2500, 3000);
-  busy_wait_ms(7000);
+  // busy_wait_ms(7000);
   servo_dump(brak_servo, 2500, 3000);
 
   start_time = time_us_32(); // First measurement saved seperately
 
-  busy_wait_ms(17000);
+  // busy_wait_ms(17000);
 
   // Poll IMU one last time
   bno08x.getSensorEvent(&sensor_value);
@@ -674,9 +667,7 @@ void loop(void)
 
   prev_time = curr_time;
 
-
   turbidity = fetch_turb(20); // fetch turbidity measurement
-  
 
   curr_time = (time_us_32() - start_time) / 1000000.0f; // Taken to check time against first measurement
 
@@ -692,16 +683,16 @@ void loop(void)
   double current_mA = rawCurrent * 0.1;
 
   // If outside of 3-14V range of > 1A current draw then stop
-  if (busVoltage > 14 || busVoltage < 3 || current_mA > 1000)
-  {
-    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
-    pixel.show();
+  // if (busVoltage > 14 || busVoltage < 3 || current_mA > 1000)
+  // {
+  //   pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
+  //   pixel.show();
 
-    stop_driving();
+  //   brake_ssr();
 
-    while (1)
-      ; // Do nothing for remainder of uptime
-  }
+  //   while (1)
+  //     ; // Do nothing for remainder of uptime
+  // }
 
   // Update data array
   data[0] = turbidity;
@@ -709,7 +700,7 @@ void loop(void)
   data[2] = yaw_diff;
   data[3] = drive_dist_m;
   data[4] = current_mA;
-  data[9] = busVoltage;
+  data[5] = busVoltage;
 
   // Open csv file
   data_file = sd.open(file_name, FILE_WRITE);
@@ -720,7 +711,7 @@ void loop(void)
     // Write file header
     if (is_file_new)
     {
-      data_file.println("Time (s),Raw Temperature (deg C),Filtered Temperature (deg C),Delta T (deg C),Temperature Line (deg C),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Filtered Yaw Angle (deg),Current (mA),Voltage (V),Wheel Distance (m)");
+      data_file.println("Time (s),Turbidity (counts),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Wheel Distance (m),Current (mA),Voltage (V)");
       is_file_new = false;
     }
 
@@ -730,7 +721,6 @@ void loop(void)
   }
 
   printer(true, curr_time, data); // Write variable data to serial in CSV format
-
 
   if (TURB_THRESHOLD <= turbidity)
   {

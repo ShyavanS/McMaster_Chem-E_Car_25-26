@@ -14,7 +14,7 @@ More information is available in the readme.
 #include <Wire.h>
 #include <BackgroundAudio.h>
 #include <PWMAudio.h>
-#include "SdFat.h"
+#include <SdFat.h>
 #include "hardware/timer.h"
 #include "pico/stdlib.h"
 
@@ -27,8 +27,6 @@ More information is available in the readme.
 // Define the PWM pins for the stir bar motors
 #define BRAK_STIR_PWM_1 A3
 #define BRAK_STIR_PWM_2 24
-#define PROP_STIR_PWM_1 6
-#define PROP_STIR_PWM_2 5
 
 // Define servo pins
 #define BRAK_SERVO_PWM 11
@@ -41,10 +39,10 @@ More information is available in the readme.
 
 // #define TURBIDITY_SENS A2 // Pin for the turbidity sensor data line
 #define TURBIDITY_SENS A2
-#define BNO08X_RESET -1   // No reset pin for IMU over I2C, only enabled for SPI
-#define A219_I2C 0x40     // I2C address for current/voltage sensor
-#define SD_CS_PIN 23      // Define chip select pin for SD card
-#define AUDIO_OUT 12      // Define audio output pin
+#define BNO08X_RESET -1 // No reset pin for IMU over I2C, only enabled for SPI
+#define A219_I2C 0x40   // I2C address for current/voltage sensor
+#define SD_CS_PIN 23    // Define chip select pin for SD card
+#define AUDIO_OUT 12    // Define audio output pin
 
 // Struct for Euler Angles
 struct euler_t
@@ -70,7 +68,6 @@ enum DoorCmd
 // Create BNO085 instance
 Adafruit_BNO08x bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensor_value;
-
 
 Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status LED
 
@@ -108,7 +105,6 @@ double yaw_diff = 0.0; // yaw angle difference
 
 double turbidity; // turbidity counts
 
-
 // Keeping track of time
 double curr_time = 0.0f;
 double prev_time = 0.0f;
@@ -125,8 +121,6 @@ const float K_I = 0.0;  // Integral weighting
 const float K_D = 0.0;  // Derivative weighting
 
 // Offsets & constants for PID
-int left_offset = 0;
-int right_offset = 0;
 const int SERVO_ANGLE = 1475;
 const int MAX_OFFSET = 1024;
 const int YAW_REF = 90;
@@ -139,7 +133,8 @@ Parameters:  void
 Returns:     void
 */
 
-void reset_ssr() {
+void reset_ssr()
+{
   digitalWrite(DRIVE_PIN, LOW);
   digitalWrite(BRAKE_PIN, LOW);
 }
@@ -152,7 +147,8 @@ Parameters:  void
 Returns:     void
 */
 
-void drive_ssr() {
+void drive_ssr()
+{
   reset_ssr();
   busy_wait_ms(1);
   digitalWrite(DRIVE_PIN, HIGH);
@@ -166,7 +162,8 @@ Parameters:  void
 Returns:     void
 */
 
-void brake_ssr() {
+void brake_ssr()
+{
   reset_ssr();
   busy_wait_ms(1);
   digitalWrite(BRAKE_PIN, HIGH);
@@ -517,20 +514,19 @@ void setup(void)
   // Setting to drive,brake motors output mode
   pinMode(DRIVE_PIN, OUTPUT);
   pinMode(BRAKE_PIN, OUTPUT);
-  
+
   sd.begin(config); // Initialize the SD card
 
   brake_ssr(); // Stop driving motors from any residual bootloader code
 
-  // Initialize the stir motor pins as outputs
+  // Initialize the auxiliary DC motor pins as outputs
   pinMode(BRAK_STIR_PWM_1, OUTPUT);
   pinMode(BRAK_STIR_PWM_2, OUTPUT);
-  pinMode(PROP_STIR_PWM_1, OUTPUT);
-  pinMode(PROP_STIR_PWM_2, OUTPUT);
+  pinMode(AUXDC_PWM_1, OUTPUT);
+  pinMode(AUXDC_PWM_2, OUTPUT);
 
   // Setting the stir speed
   start_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2, 255);
-  start_stir(PROP_STIR_PWM_1, PROP_STIR_PWM_2, 255);
 
   analogReadResolution(12);
   pinMode(TURBIDITY_SENS, INPUT);
@@ -552,8 +548,6 @@ void setup(void)
     busy_wait_ms(200);
   }
 
-  
-
   // Initialize servos to default position
   prop_servo.writeMicroseconds(450);
   prop_servo.attach(PROP_SERVO_PWM, 400, 2600);
@@ -567,16 +561,15 @@ void setup(void)
   steering_servo.attach(STEERING_SERVO_PWM, 400, 2600);
   steering_servo.writeMicroseconds(1475);
   busy_wait_ms(2000);
- 
 
   // Dump reactants before starting drive
   servo_dump(prop_servo, 2500, 3000);
-  busy_wait_ms(7000);
+  // busy_wait_ms(7000);
   servo_dump(brak_servo, 2500, 3000);
 
   start_time = micros(); // First measurement saved seperately
 
-  busy_wait_ms(17000);
+  // busy_wait_ms(17000);
 
   // Poll IMU one last time
   bno08x.getSensorEvent(&sensor_value);
@@ -592,6 +585,8 @@ void setup(void)
 
   pixel.setPixelColor(0, 0, 0, 255); // Indicate setup complete status
   pixel.show();
+
+  mp3.begin();
 }
 
 /*
@@ -621,59 +616,31 @@ void loop(void)
 
   drive_ssr(); // Start drive
 
-
-  uint16_t rawBus = readRegister(A219_I2C, 0x02);
-  double busVoltage = (rawBus >> 3) * 0.004;
-
-  int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
-  double current_mA = rawCurrent * 0.1;
-
-  // If outside of 3-14V range of > 1A current draw then stop
-  if (busVoltage > 14 || busVoltage < 3 || current_mA > 1000)
-  {
-    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
-    pixel.show();
-
-    stop_driving();
-
-    while (1)
-      ; // Do nothing for remainder of uptime
-  }
-
-  prev_time = curr_time;
-  
-  turbidity = fetch_turb(20);//fetch turbidity measurement
-
-  uint16_t rawBus = readRegister(A219_I2C, 0x02);
-  double busVoltage = (rawBus >> 3) * 0.004;
-
-  int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
-  double current_mA = rawCurrent * 0.1;
-
-  // If outside of 3-14V range of > 1A current draw then stop
-  if (busVoltage > 14 || busVoltage < 3 || current_mA > 1000)
-  {
-    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
-    pixel.show();
-
-    stop_driving();
-
-    while (1)
-      ; // Do nothing for remainder of uptime
-  }
-
-  // delay(5) If needed since sensor needs about 5ms to process 8 samples
-
   prev_time = curr_time;
 
-  
-  turbidity = fetch_turb(20);//fetch turbidity measurement
-  
+  turbidity = fetch_turb(20); // fetch turbidity measurement
 
   curr_time = (time_us_32() - start_time) / 1000000.0f; // Taken to check time against first measurement
 
   pid_loop(); // Run PID controller
 
+  uint16_t rawBus = readRegister(A219_I2C, 0x02);
+  double busVoltage = (rawBus >> 3) * 0.004;
+
+  int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
+  double current_mA = rawCurrent * 0.1;
+
+  // If outside of 3-14V range of > 1A current draw then stop
+  if (busVoltage > 14 || busVoltage < 3 || current_mA > 1000)
+  {
+    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
+    pixel.show();
+
+    stop_driving();
+
+    while (1)
+      ; // Do nothing for remainder of uptime
+  }
 
   if (TURB_THRESHOLD <= turbidity)
   {
