@@ -26,15 +26,14 @@ information is available in the readme.
 #include "hardware/timer.h"
 #include "encoder/encoder.cpp" // Modified to remove debounce delays, don't replace!
 #include "encoder/encoder.hpp" // Modified to remove debounce delays, don't replace!
-#include "SdFat.h"
-#include "pico/stdlib.h"
-
 
 #define NUM_LEDS 1 // Status LED
 
-// Define drive/brake motor pins
-#define DRIVE_PIN 9
-#define BRAKE_PIN 13
+// Define drive motor pins
+#define LEFT_PWM_1 9
+#define LEFT_PWM_2 10
+#define RIGHT_PWM_1 12
+#define RIGHT_PWM_2 11
 
 // Define the PWM pins for the stir bar motors
 #define BRAK_STIR_PWM_1 A3
@@ -45,7 +44,8 @@ information is available in the readme.
 // Define servo pins
 #define BRAK_SERVO_PWM 11
 #define PROP_SERVO_PWM 4
-#define STEERING_SERVO_PWM 25
+#define LEFT_SERVO_PWM MOSI
+#define RIGHT_SERVO_PWM SCK
 
 // Define encoder pins
 #define ENC_A A0
@@ -74,7 +74,8 @@ const double WHEEL_CIRCUMFERENCE_M = 0.398982;
 // Create servo objects
 Servo brak_servo;
 Servo prop_servo;
-Servo steering_servo;
+Servo left_servo;
+Servo right_servo;
 
 // Create encoder object using only A & B pins, not index, assign to pio0, sm 1 & 3 in reversed direction w/ microstepping for smoothness
 Encoder drive_encoder(PIO pio0, 3, {ENC_A, ENC_B}, PIN_UNUSED, REVERSED_DIR, PPR, true);
@@ -179,30 +180,18 @@ const int MAX_OFFSET = 1024;
 const int YAW_REF = 90;
 
 /*
-Description: Subroutine to close both drive and brake SSR.
-Inputs:      void
-Outputs:     void
-Parameters:  void
-Returns:     void
-*/
-
-void reset_ssr() {
-  digitalWrite(DRIVE_PIN, LOW);
-  digitalWrite(BRAKE_PIN, LOW);
-}
-
-/*
 Description: Subroutine to drive car forward.
 Inputs:      void
 Outputs:     void
 Parameters:  void
 Returns:     void
 */
-
-void drive_ssr() {
-  reset_ssr();
-  busy_wait_ms(1);
-  digitalWrite(DRIVE_PIN, HIGH);
+void drive_forward(void)
+{
+  digitalWrite(LEFT_PWM_1, HIGH);
+  digitalWrite(RIGHT_PWM_2, HIGH);
+  digitalWrite(LEFT_PWM_2, LOW);
+  digitalWrite(RIGHT_PWM_1, LOW);
 }
 
 /*
@@ -212,11 +201,12 @@ Outputs:     void
 Parameters:  void
 Returns:     void
 */
-
-void brake_ssr() {
-  reset_ssr();
-  busy_wait_ms(1);
-  digitalWrite(BRAKE_PIN, HIGH);
+void stop_driving(void)
+{
+  digitalWrite(LEFT_PWM_1, HIGH);
+  digitalWrite(RIGHT_PWM_2, HIGH);
+  digitalWrite(LEFT_PWM_2, HIGH);
+  digitalWrite(RIGHT_PWM_1, HIGH);
 }
 
 /*
@@ -410,7 +400,8 @@ void pid_loop(void)
   sum_error = max(min(sum_error + cbrt(error), MAX_OFFSET), -MAX_OFFSET);
 
   // Write to servos
-  steering_servo.writeMicroseconds(SERVO_ANGLE + adj_pid_output);
+  left_servo.writeMicroseconds(SERVO_ANGLE - adj_pid_output);
+  right_servo.writeMicroseconds(SERVO_ANGLE - adj_pid_output);
 }
 
 /*
@@ -619,11 +610,13 @@ void setup(void)
   // Set file numbering
   file_name = "Run_" + String(run_count) + ".csv";
 
-  // Setting to drive,brake motors output mode
-  pinMode(DRIVE_PIN, OUTPUT);
-  pinMode(BRAKE_PIN, OUTPUT);
+  // Setting to drive motors output mode
+  pinMode(LEFT_PWM_1, OUTPUT);
+  pinMode(LEFT_PWM_2, OUTPUT);
+  pinMode(RIGHT_PWM_1, OUTPUT);
+  pinMode(RIGHT_PWM_2, OUTPUT);
 
-  brake_ssr(); // Stop driving motors from any residual bootloader code
+  stop_driving(); // Stop driving motors from any residual bootloader code
 
   // Initialize the stir motor pins as outputs
   pinMode(BRAK_STIR_PWM_1, OUTPUT);
@@ -682,9 +675,13 @@ void setup(void)
   brak_servo.attach(BRAK_SERVO_PWM, 400, 2600);
   brak_servo.writeMicroseconds(450);
   busy_wait_ms(2000);
-  steering_servo.writeMicroseconds(1475);
-  steering_servo.attach(STEERING_SERVO_PWM, 400, 2600);
-  steering_servo.writeMicroseconds(1475);
+  left_servo.writeMicroseconds(1475);
+  left_servo.attach(LEFT_SERVO_PWM, 400, 2600);
+  left_servo.writeMicroseconds(1475);
+  busy_wait_ms(2000);
+  right_servo.writeMicroseconds(1475);
+  right_servo.attach(RIGHT_SERVO_PWM, 400, 2600);
+  right_servo.writeMicroseconds(1475);
   busy_wait_ms(2000);
 
   // Dump reactants before starting drive
@@ -727,7 +724,6 @@ Returns:     void
 */
 void loop(void)
 {
-
   // Play start music
   if (!audio_started)
   {
@@ -744,8 +740,7 @@ void loop(void)
     send_audio();
   }
 
-  drive_ssr(); // Start drive
-
+  drive_forward(); // Start drive
 
   prev_time = curr_time;
 
@@ -823,7 +818,7 @@ void loop(void)
   if (temp_diff <= temp_change)
   {
     // Stop driving
-    brake_ssr();
+    stop_driving();
 
     // Indicate status to be finished
     pixel.setPixelColor(0, 0, 255, 0);
