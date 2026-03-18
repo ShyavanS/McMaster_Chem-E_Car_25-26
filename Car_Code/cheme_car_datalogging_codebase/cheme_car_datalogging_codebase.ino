@@ -515,19 +515,19 @@ void setup(void)
   // Multiply by calculated LSB (0.1mA)
   float current_mA = rawCurrent * 0.1;
 
-  // Wait for busVolatge to surpass 7V
-  // while (busVoltage < 7)
-  // {
-  //   rawBus = readRegister(A219_I2C, 0x02);
-  //   busVoltage = (rawBus >> 3) * 0.004;
-  // }
-
   // Indicate status to be initialized
   pixel.begin();
   pixel.setBrightness(255);
   pixel.show();
   pixel.setPixelColor(0, 255, 0, 0);
   pixel.show();
+
+  // Wait for busVolatge to surpass 7V
+  while (busVoltage < 7)
+  {
+    rawBus = readRegister(A219_I2C, 0x02);
+    busVoltage = (rawBus >> 3) * 0.004;
+  }
 
   Serial.begin(115200);
 
@@ -683,16 +683,16 @@ void loop(void)
   double current_mA = rawCurrent * 0.1;
 
   // If outside of 3-14V range of > 1A current draw then stop
-  // if (busVoltage > 14 || busVoltage < 3 || current_mA > 1000)
-  // {
-  //   pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
-  //   pixel.show();
+  if (busVoltage > 14 || busVoltage < 3 || current_mA > 1000)
+  {
+    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
+    pixel.show();
 
-  //   brake_ssr();
+    brake_ssr();
 
-  //   while (1)
-  //     ; // Do nothing for remainder of uptime
-  // }
+    while (1)
+      ; // Do nothing for remainder of uptime
+  }
 
   // Update data array
   data[0] = turbidity;
