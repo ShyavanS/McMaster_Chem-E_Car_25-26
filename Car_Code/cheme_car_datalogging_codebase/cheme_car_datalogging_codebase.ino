@@ -1,5 +1,5 @@
 // McMaster Chem-E Car Team
-// Chem-E Car Datalogging Code - 24/25
+// Chem-E Car Datalogging Code - 25/26
 
 /*
 The code to be used before the Chem-E Car competition to run the car while
@@ -19,11 +19,16 @@ information is available in the readme.
 #include <DallasTemperature.h>
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
+#include <Wire.h>
+#include <BackgroundAudio.h>
+#include <PWMAudio.h>
+#include "SdFat.h"
 #include "hardware/timer.h"
 #include "encoder/encoder.cpp" // Modified to remove debounce delays, don't replace!
 #include "encoder/encoder.hpp" // Modified to remove debounce delays, don't replace!
 #include "SdFat.h"
 #include "pico/stdlib.h"
+
 
 #define NUM_LEDS 1 // Status LED
 
@@ -38,22 +43,19 @@ information is available in the readme.
 #define PROP_STIR_PWM_2 5
 
 // Define servo pins
-#define BRAK_SERVO_PWM 13
+#define BRAK_SERVO_PWM 11
 #define PROP_SERVO_PWM 4
 #define STEERING_SERVO_PWM 25
 
 // Define encoder pins
-#define LEFT_ENC_A 25
-#define LEFT_ENC_B MISO
-#define RIGHT_ENC_A A0
-#define RIGHT_ENC_B A2
+#define ENC_A A0
+#define ENC_B A1
 
 #define BRAK_TEMP_SENS A1 // Pin for the teperature sensor data line
-
-#define BNO08X_RESET -1 // No reset pin for IMU over I2C, only enabled for SPI
-
-// Define chip select pin for SD card
-#define SD_CS_PIN 23
+#define BNO08X_RESET -1   // No reset pin for IMU over I2C, only enabled for SPI
+#define SD_CS_PIN 23      // Define chip select pin for SD card
+#define A219_I2C 0x40     // I2C address for current/voltage sensor
+#define AUDIO_OUT 12      // Define audio output pin
 
 using namespace encoder;
 
@@ -74,9 +76,8 @@ Servo brak_servo;
 Servo prop_servo;
 Servo steering_servo;
 
-// Create encoder objects using only A & B pins, not index, assign to pio0, sm 1 & 3 in reversed direction w/ microstepping for smoothness
-Encoder left_drive(PIO pio0, 1, {LEFT_ENC_A, LEFT_ENC_B}, PIN_UNUSED, REVERSED_DIR, PPR, true);
-Encoder right_drive(PIO pio0, 3, {RIGHT_ENC_A, RIGHT_ENC_B}, PIN_UNUSED, REVERSED_DIR, PPR, true);
+// Create encoder object using only A & B pins, not index, assign to pio0, sm 1 & 3 in reversed direction w/ microstepping for smoothness
+Encoder drive_encoder(PIO pio0, 3, {ENC_A, ENC_B}, PIN_UNUSED, REVERSED_DIR, PPR, true);
 
 // Create BNO085 instance
 Adafruit_BNO08x bno08x(BNO08X_RESET);
@@ -92,8 +93,19 @@ SdFat sd;
 FsFile root;
 FsFile next_file;
 FsFile data_file;
+FsFile audio_file;
+String start_music = "start_music.mp3"; // placeholders for actual audio file names
+String stop_music = "stop_music.mp3";
 SdSpiConfig config(SD_CS_PIN, DEDICATED_SPI, SD_SCK_MHZ(16), &SPI1);
 String file_name;
+
+// Set up audio output using PWM
+PWMAudio pwm(AUDIO_OUT);
+BackgroundAudioMP3 mp3(pwm); // create the mp3 player object and decoder
+uint8_t filebuff[512];       // allocates 512 bytes of memory to temporarily store audio data before processing
+
+// Flag to check if audio started playing
+bool audio_started = false;
 
 bool is_file_new = true; // Checks for new file
 
@@ -111,8 +123,7 @@ double init_yaw = 0.0; // initial yaw angle
 double yaw_diff = 0.0; // yaw angle difference
 
 // Wheel distance variables
-double dist_left_m = 0.0;
-double dist_right_m = 0.0;
+double drive_dist_m = 0.0;
 
 // Delta temperature
 double temp_diff;
@@ -147,8 +158,8 @@ double curr_time = 0.0f;
 double prev_time = 0.0f;
 uint32_t start_time;
 
-const int DATA_SIZE = 9; // Number of items to log
-double data[DATA_SIZE];  // Data array
+const int DATA_SIZE = 10; // Number of items to log
+double data[DATA_SIZE];   // Data array
 
 // PID loop variables
 double error = 0.0;      // Proportional error
@@ -454,6 +465,75 @@ void unwrap_yaw(void)
 }
 
 /*
+Description: Send audio data chunks to the decoder and close file when done
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
+void send_audio(void)
+{
+  // If an audio file is open and the decoder buffer has enough space for more audio data
+  while (audio_file && mp3.availableForWrite() > 512)
+  {
+    // read 512 bytes from the audio file and send to the decoder
+    int len = audio_file.read(filebuff, 512);
+    mp3.write(filebuff, len);
+
+    // if the audio data was shorter than 512 bytes, we've reached the end of the file
+    if (len != 512)
+    {
+      audio_file.close();
+      audio_started = false;
+    }
+  }
+}
+
+/*
+Description: Helper function to write value to register over I2C
+Inputs: void
+Outputs: void
+Parameters: address (unsigned 8-bit), reg (unsigned 8-bit), value (unsigned 16-bit)
+Returns: void
+*/
+void writeRegister(uint8_t address, uint8_t reg, uint16_t value)
+{
+  Wire.beginTransmission(address);
+
+  Wire.write(reg);
+  Wire.write((value >> 8) & 0xFF); // MSB
+  Wire.write(value & 0xFF);        // LSB
+
+  Wire.endTransmission();
+}
+
+/*
+Description: Helper function to read value from register over I2C
+Inputs: void
+Outputs: void
+Parameters: address (unsigned 8-bit), reg (unsigned 8-bit)
+Returns: 2 bytes of data
+*/
+uint16_t readRegister(uint8_t address, uint8_t reg)
+{
+  Wire.beginTransmission(address);
+  Wire.write(reg);
+  Wire.endTransmission();
+  
+  Wire.requestFrom(address, (uint8_t)2); // Request 2 bytes
+
+  // If data available then return it
+  if (Wire.available() >= 2)
+  {
+    uint16_t value = Wire.read() << 8;
+    value |= Wire.read();
+    return value;
+  }
+
+  return 0; // Otherwise return 0
+}
+
+/*
 Description: Arduino setup subroutine.
 Inputs:      void
 Outputs:     void
@@ -462,6 +542,46 @@ Returns:     void
 */
 void setup(void)
 {
+
+  // Intitalize Voltage/Current Sensor
+  Wire.begin();
+
+  /*
+  Write to config register (0x00)
+  Sets it to 16V bus range
+  Gain /4
+  12 bit ADC
+  Continuous Mode
+  */
+  // 8-sample averaging
+  // Needs about 5ms to process next batch of samples
+  writeRegister(A219_I2C, 0x00, 0x15DF);
+
+  /*
+  Write to calibration register (0x05)
+  Assumes 0.1 Ohm resistor and 2.0A max current (0.1 mA per bit)
+  Uses formula 0.04096/(Resistor*Current_Per_Bit)
+  Writes 4096 in this case
+  */
+  writeRegister(A219_I2C, 0x05, 0x1000);
+
+  // --- READ BUS VOLTAGE (0x02) ---
+  uint16_t rawBus = readRegister(A219_I2C, 0x02);
+  // Shift right 3 bits to remove status flags, then multiply by 4mV
+  float busVoltage = (rawBus >> 3) * 0.004;
+
+  // --- READ CURRENT (0x04) ---
+  int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
+  // Multiply by calculated LSB (0.1mA)
+  float current_mA = rawCurrent * 0.1;
+
+  // Wait for busVolatge to surpass 7V
+  while (busVoltage < 7)
+  {
+    rawBus = readRegister(A219_I2C, 0x02);
+    busVoltage = (rawBus >> 3) * 0.004;
+  }
+
   // Indicate status to be initialized
   pixel.begin();
   pixel.setBrightness(255);
@@ -587,15 +707,15 @@ void setup(void)
   yaw_diff = yaw - init_yaw;
 
   // Initialize encoders & zero before starting
-  left_drive.init();
-  right_drive.init();
-  left_drive.zero();
-  right_drive.zero();
+  drive_encoder.init();
+  drive_encoder.zero();
 
   curr_time = (time_us_32() - start_time) / 1000000.0f; // Taken to update prev_time
 
   pixel.setPixelColor(0, 0, 0, 255); // Indicate setup complete status
   pixel.show();
+
+  mp3.begin();
 }
 
 /*
@@ -607,7 +727,25 @@ Returns:     void
 */
 void loop(void)
 {
+
+  // Play start music
+  if (!audio_started)
+  {
+    audio_file = sd.open(start_music, FILE_READ); // Open corresponding SD card mp3 file
+    if (audio_file)                               // If the audio file opened successfully
+    {
+      audio_started = true; // Flag that the audio file has been opened
+    }
+  }
+
+  // If the audio file has been opened and is still open, send an audio data chunk
+  if (audio_started && audio_file)
+  {
+    send_audio();
+  }
+
   drive_ssr(); // Start drive
+
 
   prev_time = curr_time;
 
@@ -628,8 +766,25 @@ void loop(void)
   pid_loop(); // Run PID controller
 
   // Convert encoder counts to distance
-  dist_left_m = (double)left_drive.count() / PPR * WHEEL_CIRCUMFERENCE_M;
-  dist_right_m = (double)right_drive.count() / PPR * WHEEL_CIRCUMFERENCE_M;
+  drive_dist_m = (double)drive_encoder.count() / PPR * WHEEL_CIRCUMFERENCE_M;
+
+  uint16_t rawBus = readRegister(A219_I2C, 0x02);
+  double busVoltage = (rawBus >> 3) * 0.004;
+
+  int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
+  double current_mA = rawCurrent * 0.1;
+
+  // If outside of 3-14V range of > 1A current draw then stop
+  if (busVoltage > 14 || busVoltage < 3 || current_mA > 1000)
+  {
+    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
+    pixel.show();
+
+    stop_driving();
+
+    while (1)
+      ; // Do nothing for remainder of uptime
+  }
 
   // Update data array
   data[0] = temperature_c;
@@ -639,8 +794,9 @@ void loop(void)
   data[4] = yaw;
   data[5] = yaw_diff;
   data[6] = x_imu;
-  data[7] = dist_left_m;
-  data[8] = dist_right_m;
+  data[7] = drive_dist_m;
+  data[8] = current_mA;
+  data[9] = busVoltage;
 
   // Open csv file
   data_file = sd.open(file_name, FILE_WRITE);
@@ -651,7 +807,7 @@ void loop(void)
     // Write file header
     if (is_file_new)
     {
-      data_file.println("Time (s),Raw Temperature (deg C),Filtered Temperature (deg C),Delta T (deg C),Temperature Line (deg C),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Filtered Yaw Angle (deg),Left Wheel Distance (m),Right Wheel Distance (m)");
+      data_file.println("Time (s),Raw Temperature (deg C),Filtered Temperature (deg C),Delta T (deg C),Temperature Line (deg C),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Filtered Yaw Angle (deg),Current (mA),Voltage (V),Wheel Distance (m)");
       is_file_new = false;
     }
 
@@ -672,6 +828,15 @@ void loop(void)
     // Indicate status to be finished
     pixel.setPixelColor(0, 0, 255, 0);
     pixel.show();
+
+    // Play stop music
+    audio_file = sd.open(stop_music, FILE_READ);
+
+    // keep playing audio until file is closed
+    while (audio_file)
+    {
+      send_audio();
+    }
 
     while (1)
       ; // Do nothing for remainder of uptime
