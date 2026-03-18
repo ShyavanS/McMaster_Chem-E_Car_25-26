@@ -134,7 +134,7 @@ double curr_time = 0.0f;
 double prev_time = 0.0f;
 uint32_t start_time;
 
-const int DATA_SIZE = 5; // Number of items to log
+const int DATA_SIZE = 6; // Number of items to log
 double data[DATA_SIZE];  // Data array
 
 // PID loop variables
@@ -722,25 +722,25 @@ void loop(void)
 
   printer(true, curr_time, data); // Write variable data to serial in CSV format
 
-  if (TURB_THRESHOLD <= turbidity)
-  {
-    // Stop driving
-    brake_ssr();
+  // if (TURB_THRESHOLD <= turbidity)
+  // {
+  //   // Stop driving
+  //   brake_ssr();
 
-    // Indicate status to be finished
-    pixel.setPixelColor(0, 0, 255, 0);
-    pixel.show();
+  //   // Indicate status to be finished
+  //   pixel.setPixelColor(0, 0, 255, 0);
+  //   pixel.show();
 
-    // Play stop music
-    audio_file = sd.open(stop_music, FILE_READ);
+  //   // Play stop music
+  //   audio_file = sd.open(stop_music, FILE_READ);
 
-    // keep playing audio until file is closed
-    while (audio_file)
-    {
-      send_audio();
-    }
+  //   // keep playing audio until file is closed
+  //   while (audio_file)
+  //   {
+  //     send_audio();
+  //   }
 
-    while (1)
-      ; // Do nothing for remainder of uptime
-  }
+  //   while (1)
+  //     ; // Do nothing for remainder of uptime
+  // }
 }
