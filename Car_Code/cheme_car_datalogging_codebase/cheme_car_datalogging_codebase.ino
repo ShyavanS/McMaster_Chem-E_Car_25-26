@@ -33,8 +33,8 @@ information is available in the readme.
 #define BRAKE_PIN 13
 
 // Define the PWM pins for the stir bar motors
-#define BRAK_STIR_PWM_1 A3
-#define BRAK_STIR_PWM_2 24
+#define BRAK_STIR_PWM_1 6
+#define BRAK_STIR_PWM_2 5
 
 // Define servo pins
 #define BRAK_SERVO_PWM 11
