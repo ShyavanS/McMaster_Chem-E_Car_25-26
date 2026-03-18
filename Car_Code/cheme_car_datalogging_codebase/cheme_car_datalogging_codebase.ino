@@ -75,8 +75,8 @@ Servo brak_servo;
 Servo prop_servo;
 Servo steering_servo;
 
-// Create encoder object using only A & B pins, not index, assign to pio0, sm 1 & 3 in reversed direction w/ microstepping for smoothness
-Encoder drive_encoder(PIO pio0, 3, {ENC_A, ENC_B}, PIN_UNUSED, REVERSED_DIR, PPR, true);
+// Create encoder object using only A & B pins, not index, assign to pio0, sm 1 & 3 in normal direction w/ microstepping for smoothness
+Encoder drive_encoder(PIO pio0, 3, {ENC_A, ENC_B}, PIN_UNUSED, NORMAL_DIR, PPR, true);
 
 // Create BNO085 instance
 Adafruit_BNO08x bno08x(BNO08X_RESET);
@@ -114,6 +114,12 @@ const float REJECT_THRESHOLD = 3.0;
 // define turbidity threshold for braking(THIS IS A PLACEHOLDER)
 const float TURB_THRESHOLD = 3000.0; // THIS IS A PLACEHOLDER!!!
 
+// Define voltage & current monitor variables
+uint16_t raw_bus;
+int16_t raw_current;
+double bus_voltage;
+double current_mA;
+
 // Define IMU variables
 double raw_yaw;        // raw yaw angle
 double prev_yaw;       // previous unwrapped yaw angle
@@ -143,7 +149,7 @@ double last_error = 0.0; // Derivative error
 double sum_error = 0.0;  // Integral error
 
 // The following numbers need to be adjusted through testing
-const float K_P = 13.0; // Proportional weighting
+const float K_P = 25.0; // Proportional weighting
 const float K_I = 0.0;  // Integral weighting
 const float K_D = 0.0;  // Derivative weighting
 
@@ -363,11 +369,13 @@ float fetch_turb(int samples)
 {
   // calculate turbidity(avg of # measurements)
   float turbidity = 0.0f;
+
   for (int i = 0; i < samples; i++)
   {
     turbidity += (double)analogRead(TURBIDITY_SENS);
   }
   turbidity = turbidity / (double)samples;
+
   return turbidity;
 }
 
@@ -436,7 +444,7 @@ Outputs: void
 Parameters: address (unsigned 8-bit), reg (unsigned 8-bit), value (unsigned 16-bit)
 Returns: void
 */
-void writeRegister(uint8_t address, uint8_t reg, uint16_t value)
+void write_register(uint8_t address, uint8_t reg, uint16_t value)
 {
   Wire.beginTransmission(address);
 
@@ -454,7 +462,7 @@ Outputs: void
 Parameters: address (unsigned 8-bit), reg (unsigned 8-bit)
 Returns: 2 bytes of data
 */
-uint16_t readRegister(uint8_t address, uint8_t reg)
+uint16_t read_register(uint8_t address, uint8_t reg)
 {
   Wire.beginTransmission(address);
   Wire.write(reg);
@@ -495,7 +503,7 @@ void setup(void)
   */
   // 8-sample averaging
   // Needs about 5ms to process next batch of samples
-  writeRegister(A219_I2C, 0x00, 0x15DF);
+  write_register(A219_I2C, 0x00, 0x15DF);
 
   /*
   Write to calibration register (0x05)
@@ -503,17 +511,17 @@ void setup(void)
   Uses formula 0.04096/(Resistor*Current_Per_Bit)
   Writes 4096 in this case
   */
-  writeRegister(A219_I2C, 0x05, 0x1000);
+  write_register(A219_I2C, 0x05, 0x1000);
 
   // --- READ BUS VOLTAGE (0x02) ---
-  uint16_t rawBus = readRegister(A219_I2C, 0x02);
+  raw_bus = read_register(A219_I2C, 0x02);
   // Shift right 3 bits to remove status flags, then multiply by 4mV
-  float busVoltage = (rawBus >> 3) * 0.004;
+  bus_voltage = (raw_bus >> 3) * 0.004;
 
   // --- READ CURRENT (0x04) ---
-  int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
+  raw_current = (int16_t)read_register(A219_I2C, 0x04);
   // Multiply by calculated LSB (0.1mA)
-  float current_mA = rawCurrent * 0.1;
+  current_mA = raw_current * 0.1;
 
   // Indicate status to be initialized
   pixel.begin();
@@ -521,13 +529,6 @@ void setup(void)
   pixel.show();
   pixel.setPixelColor(0, 255, 0, 0);
   pixel.show();
-
-  // Wait for busVolatge to surpass 7V
-  while (busVoltage < 7)
-  {
-    rawBus = readRegister(A219_I2C, 0x02);
-    busVoltage = (rawBus >> 3) * 0.004;
-  }
 
   Serial.begin(115200);
 
@@ -575,6 +576,7 @@ void setup(void)
   start_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2, 255);
 
   analogReadResolution(12);
+  pinMode(TURBIDITY_SENS, INPUT);
   bno08x.begin_I2C();
   set_reports();
 
@@ -593,6 +595,22 @@ void setup(void)
     busy_wait_ms(200);
   }
 
+  // Play start music
+  if (!audio_started)
+  {
+    audio_file = sd.open(start_music, FILE_READ); // Open corresponding SD card mp3 file
+    if (audio_file)                               // If the audio file opened successfully
+    {
+      audio_started = true; // Flag that the audio file has been opened
+    }
+  }
+
+  // If the audio file has been opened and is still open, send an audio data chunk
+  while (audio_started && audio_file)
+  {
+    send_audio();
+  }
+
   // Initialize servos to default position
   prop_servo.writeMicroseconds(450);
   prop_servo.attach(PROP_SERVO_PWM, 400, 2600);
@@ -609,7 +627,14 @@ void setup(void)
 
   // Dump reactants before starting drive
   servo_dump(prop_servo, 2500, 3000);
-  // busy_wait_ms(7000);
+
+  // Wait for busVolatge to surpass 7V
+  // while (bus_voltage < 7)
+  // {
+  //   raw_bus = read_register(A219_I2C, 0x02);
+  //   bus_voltage = (raw_bus >> 3) * 0.004;
+  // }
+
   servo_dump(brak_servo, 2500, 3000);
 
   start_time = time_us_32(); // First measurement saved seperately
@@ -636,6 +661,8 @@ void setup(void)
   pixel.show();
 
   mp3.begin();
+
+  drive_ssr(); // Start drive
 }
 
 /*
@@ -647,24 +674,6 @@ Returns:     void
 */
 void loop(void)
 {
-  // Play start music
-  if (!audio_started)
-  {
-    audio_file = sd.open(start_music, FILE_READ); // Open corresponding SD card mp3 file
-    if (audio_file)                               // If the audio file opened successfully
-    {
-      audio_started = true; // Flag that the audio file has been opened
-    }
-  }
-
-  // If the audio file has been opened and is still open, send an audio data chunk
-  if (audio_started && audio_file)
-  {
-    send_audio();
-  }
-
-  drive_ssr(); // Start drive
-
   prev_time = curr_time;
 
   turbidity = fetch_turb(20); // fetch turbidity measurement
@@ -676,23 +685,20 @@ void loop(void)
   // Convert encoder counts to distance
   drive_dist_m = (double)drive_encoder.count() / PPR * WHEEL_CIRCUMFERENCE_M;
 
-  uint16_t rawBus = readRegister(A219_I2C, 0x02);
-  double busVoltage = (rawBus >> 3) * 0.004;
+  raw_bus = read_register(A219_I2C, 0x02);
+  bus_voltage = (raw_bus >> 3) * 0.004;
 
-  int16_t rawCurrent = (int16_t)readRegister(A219_I2C, 0x04);
-  double current_mA = rawCurrent * 0.1;
+  raw_current = (int16_t)read_register(A219_I2C, 0x04);
+  current_mA = raw_current * 0.1;
 
   // If outside of 3-14V range of > 1A current draw then stop
-  if (busVoltage > 14 || busVoltage < 3 || current_mA > 1000)
-  {
-    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
-    pixel.show();
+  // if (bus_voltage > 14 || bus_voltage < 3 || current_mA > 1000)
+  // {
+  //   brake_ssr();
 
-    brake_ssr();
-
-    while (1)
-      ; // Do nothing for remainder of uptime
-  }
+  //   pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
+  //   pixel.show();
+  // }
 
   // Update data array
   data[0] = turbidity;
@@ -700,7 +706,7 @@ void loop(void)
   data[2] = yaw_diff;
   data[3] = drive_dist_m;
   data[4] = current_mA;
-  data[5] = busVoltage;
+  data[5] = bus_voltage;
 
   // Open csv file
   data_file = sd.open(file_name, FILE_WRITE);
@@ -735,12 +741,9 @@ void loop(void)
   //   audio_file = sd.open(stop_music, FILE_READ);
 
   //   // keep playing audio until file is closed
-  //   while (audio_file)
+  //   if (audio_file)
   //   {
   //     send_audio();
   //   }
-
-  //   while (1)
-  //     ; // Do nothing for remainder of uptime
   // }
 }
