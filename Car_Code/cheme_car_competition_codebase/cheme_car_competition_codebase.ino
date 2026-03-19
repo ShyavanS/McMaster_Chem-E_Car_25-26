@@ -25,8 +25,8 @@ More information is available in the readme.
 #define BRAKE_PIN 13
 
 // Define the PWM pins for the stir bar motors
-#define BRAK_STIR_PWM_1 6
-#define BRAK_STIR_PWM_2 5
+#define BRAK_STIR_PWM_1 A3
+#define BRAK_STIR_PWM_2 24
 
 // Define servo pins
 #define BRAK_SERVO_PWM 11
@@ -34,8 +34,8 @@ More information is available in the readme.
 #define STEERING_SERVO_PWM 25
 
 // Define Auxillary DC Motor Pins
-#define AUXDC_PWM_1 A3
-#define AUXDC_PWM_2 24
+#define AUXDC_PWM_1 6
+#define AUXDC_PWM_2 5
 
 // #define TURBIDITY_SENS A2 // Pin for the turbidity sensor data line
 #define TURBIDITY_SENS A2
@@ -206,6 +206,9 @@ Returns:     void
 */
 void start_stir(int stir_pin_1, int stir_pin_2, int speed) // Start stirring mechanism
 {
+  digitalWrite(stir_pin_1, LOW); // For fast decay
+  analogWrite(stir_pin_2, 255);  // Set motor to max for a kickstart
+  busy_wait_ms(1000);
   digitalWrite(stir_pin_1, LOW);  // For fast decay
   analogWrite(stir_pin_2, speed); // Set motor to speed obtained through testing
 }
@@ -528,7 +531,7 @@ void setup(void)
   pinMode(AUXDC_PWM_2, OUTPUT);
 
   // Setting the stir speed
-  start_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2, 255);
+  start_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2, 154);
 
   analogReadResolution(12);
   pinMode(TURBIDITY_SENS, INPUT);
