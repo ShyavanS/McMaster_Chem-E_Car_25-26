@@ -422,6 +422,19 @@ void send_audio(void)
     }
   }
 }
+/*
+Description: turn off speaker when not in use to prevent overheating and ringing noise
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
+void stop_speaker(void) {
+  // Stop audio playback
+  pinMode(AUDIO_OUT, OUTPUT);
+  digitalWrite(AUDIO_OUT, LOW);  // Ensure no voltage goes to the speaker
+}
+
 
 /*
 Description: Helper function to write value to register over I2C
@@ -557,17 +570,13 @@ void setup(void)
   if (!audio_started)
   {
     audio_file = sd.open(start_music, FILE_READ); // Open corresponding SD card mp3 file
-    if (audio_file)                               // If the audio file opened successfully
+    while (audio_file)                               // If the audio file opened successfully
     {
-      audio_started = true; // Flag that the audio file has been opened
+      send_audio(); // If the audio file has been opened and is still open, send an audio data chunk
     }
   }
+  stop_speaker();
 
-  // If the audio file has been opened and is still open, send an audio data chunk
-  while (audio_started && audio_file)
-  {
-    send_audio();
-  }
 
   // Initialize servos to default position
   prop_servo.writeMicroseconds(450);
@@ -660,14 +669,20 @@ void loop(void)
   //   pixel.setPixelColor(0, 0, 255, 0);
   //   pixel.show();
   //   DoorSequence(128, 1000, 1000, 1000); // Placeholders
-
+  //   // stopping stirring motor
+  //   analogWrite(stir_pin_1, LOW);
+  //   analogWrite(stir_pin_2, LOW);
   //   // Play stop music
   //   audio_file = sd.open(stop_music, FILE_READ);
 
   //   // keep playing audio until file is closed
-  //   if (audio_file)
+  //   while (audio_file)
   //   {
   //     send_audio();
   //   }
+
+
+
   // }
+  // stop_speaker();
 }
