@@ -5,7 +5,8 @@ This project uses an Adafruit Feather RP2040 Adalogger microcontroller programme
 
 The major components used are as follows:<br />
 1 - N20 100 RPM Motor (for drive system)<br />
-2 - N20 1000 RPM Motor (for reaction stirring mechanism & auxliliary use)<br />
+1 - N20 1000 RPM Motor (for reaction stirring mechanism)<br />
+1 - N20 30 RPM Motor (for door actuation mechanism)<br />
 3 - SER0039 Servo Motor (for initially mixing reactants & steering)<br />
 1 - DRV8847 Motor Driver (for auxiliary motors)<br />
 1 - AMT103 Rotary Encoder (for datalogging to tune braking model only)<br />

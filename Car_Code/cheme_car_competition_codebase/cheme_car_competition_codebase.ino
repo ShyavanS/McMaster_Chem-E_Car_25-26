@@ -37,12 +37,11 @@ More information is available in the readme.
 #define AUXDC_PWM_1 6
 #define AUXDC_PWM_2 5
 
-// #define TURBIDITY_SENS A2 // Pin for the turbidity sensor data line
-#define TURBIDITY_SENS A2
-#define BNO08X_RESET -1 // No reset pin for IMU over I2C, only enabled for SPI
-#define A219_I2C 0x40   // I2C address for current/voltage sensor
-#define SD_CS_PIN 23    // Define chip select pin for SD card
-#define AUDIO_OUT 12    // Define audio output pin
+#define TURBIDITY_SENS A2 // Pin for the turbidity sensor data line(right encoder and braking sensor switched pins)
+#define BNO08X_RESET -1   // No reset pin for IMU over I2C, only enabled for SPI
+#define SD_CS_PIN 23      // Define chip select pin for SD card
+#define A219_I2C 0x40     // I2C address for current/voltage sensor
+#define AUDIO_OUT 12      // Define audio output pin
 
 // Struct for Euler Angles
 struct euler_t
@@ -52,18 +51,18 @@ struct euler_t
   float roll;
 } ypr;
 
-// Create servo objects
-Servo brak_servo;
-Servo prop_servo;
-Servo steering_servo;
-
 // Enumeration for door commands
-enum DoorCmd
+enum door_cmd
 {
   DOOR_STOP,
   DOOR_OPEN,
   DOOR_CLOSE
 };
+
+// Create servo objects
+Servo brak_servo;
+Servo prop_servo;
+Servo steering_servo;
 
 // Create BNO085 instance
 Adafruit_BNO08x bno08x(BNO08X_RESET);
@@ -74,8 +73,10 @@ Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status
 // Define files
 SdFat sd;
 FsFile audio_file;
-String start_music = "start_music.mp3"; // placeholders for actual audio file names
-String stop_music = "stop_music.mp3";
+String door_close_sound = "door_close_sound.mp3";
+String time_circuit_sound = "time_circuit_sound.mp3";
+String time_travel_sound = "time_travel_sound.mp3";
+String door_open_sound = "door_open_sound.mp3";
 SdSpiConfig config(SD_CS_PIN, DEDICATED_SPI, SD_SCK_MHZ(16), &SPI1);
 String file_name;
 
@@ -84,8 +85,10 @@ PWMAudio pwm(AUDIO_OUT);
 BackgroundAudioMP3 mp3(pwm); // create the mp3 player object and decoder
 uint8_t filebuff[512];       // allocates 512 bytes of memory to temporarily store audio data before processing
 
-// Flag to check if audio started playing
-bool audio_started = false;
+// Runtime flags
+bool running = true;
+bool audio_trig = false;
+unsigned int audio_played = 0;
 
 // The target yaw angle to keep car straight
 const float GOAL_YAW = 0.0;
@@ -138,7 +141,6 @@ Outputs:     void
 Parameters:  void
 Returns:     void
 */
-
 void reset_ssr()
 {
   digitalWrite(DRIVE_PIN, LOW);
@@ -152,7 +154,6 @@ Outputs:     void
 Parameters:  void
 Returns:     void
 */
-
 void drive_ssr()
 {
   reset_ssr();
@@ -167,7 +168,6 @@ Outputs:     void
 Parameters:  void
 Returns:     void
 */
-
 void brake_ssr()
 {
   reset_ssr();
@@ -204,7 +204,7 @@ Outputs:     void
 Parameters:  (int)stir_pin_1, (int)stir_pin_2, (int)speed
 Returns:     void
 */
-void start_stir(int stir_pin_1, int stir_pin_2, int speed) // Start stirring mechanism
+void start_stir(int stir_pin_1, int stir_pin_2, int speed)
 {
   digitalWrite(stir_pin_1, LOW); // For fast decay
   analogWrite(stir_pin_2, 255);  // Set motor to max for a kickstart
@@ -214,13 +214,26 @@ void start_stir(int stir_pin_1, int stir_pin_2, int speed) // Start stirring mec
 }
 
 /*
-Description: Subroutine to command the motor
+Description: Subroutine to stop reaction stir motors.
 Inputs:      void
 Outputs:     void
-Parameters:  (DoorCmd)cmd, (int)speed
+Parameters:  (int)stir_pin_1, (int)stir_pin_2
 Returns:     void
 */
-void DoorMotor(DoorCmd cmd, int speed)
+void stop_stir(int stir_pin_1, int stir_pin_2)
+{
+  digitalWrite(stir_pin_1, LOW); // For fast decay
+  digitalWrite(stir_pin_2, LOW); // Stop motor
+}
+
+/*
+Description: Subroutine to command the door motor
+Inputs:      void
+Outputs:     void
+Parameters:  (door_cmd)cmd, (int)speed
+Returns:     void
+*/
+void door_motor(door_cmd cmd, int speed)
 {
   switch (cmd)
   {
@@ -229,35 +242,16 @@ void DoorMotor(DoorCmd cmd, int speed)
     analogWrite(AUXDC_PWM_2, 0);
     break;
   case DOOR_OPEN:
-    analogWrite(AUXDC_PWM_1, speed);
-    analogWrite(AUXDC_PWM_2, 0);
-    break;
-  case DOOR_CLOSE:
     analogWrite(AUXDC_PWM_1, 0);
     analogWrite(AUXDC_PWM_2, speed);
     break;
+  case DOOR_CLOSE:
+    analogWrite(AUXDC_PWM_1, speed);
+    analogWrite(AUXDC_PWM_2, 0);
+    break;
+  default:
+    break;
   }
-}
-
-/*
-Description: Subroutine to execute door sequence
-Inputs:      void
-Outputs:     void
-Parameters:  (int)speed, (int)closedelay, (int)opendelay, (int)holddelay
-Returns:     void
-*/
-void DoorSequence(int speed, int closedelay, int opendelay, int holddelay)
-{
-  DoorMotor(DOOR_OPEN, speed); // Set motor to open
-  busy_wait_ms(opendelay);     // Wait how many ms the motor needs to operate for doors to open
-
-  DoorMotor(DOOR_STOP, 0); // Stop motor to hold
-  busy_wait_ms(holddelay); // Wait how many ms the door needs to stay open
-
-  DoorMotor(DOOR_CLOSE, speed); // Set motor to close
-  busy_wait_ms(closedelay);     // Wait how many ms the motor needs to operate for doors to close
-
-  DoorMotor(DOOR_STOP, 0); // Stop motor to finish operation
 }
 
 /*
@@ -345,15 +339,15 @@ void pid_loop(void)
 }
 
 /*
-Description: Subroutine to fetch temperature form the temperature sensor when the data is ready.
+Description: Subroutine to fetch turbidity samples and output the average value.
 Inputs:      void
-Outputs:     (double)temperature_c
-Parameters:  void
-Returns:     void
+Outputs:     void
+Parameters:  (int)samples
+Returns:     (float)turbidity
 */
 float fetch_turb(int samples)
 {
-  // calculate turbidity(avg of # measurements)
+  // calculate turbidity (avg of # measurements)
   float turbidity = 0.0f;
 
   for (int i = 0; i < samples; i++)
@@ -399,6 +393,31 @@ void unwrap_yaw(void)
 }
 
 /*
+Description: Turn off speaker when not in use to prevent overheating and ringing noise
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
+void start_speaker(void)
+{
+  pwm.begin(AUDIO_OUT);
+  mp3.begin();
+}
+
+/*
+Description: Turn on speaker before playing audio
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
+void stop_speaker(void)
+{
+  pwm.end();
+  mp3.end();
+}
+/*
 Description: Send audio data chunks to the decoder and close file when done
 Inputs:      void
 Outputs:     void
@@ -408,7 +427,7 @@ Returns:     void
 void send_audio(void)
 {
   // If an audio file is open and the decoder buffer has enough space for more audio data
-  while (audio_file && mp3.availableForWrite() > 512)
+  if (audio_file && mp3.availableForWrite() > 512)
   {
     // read 512 bytes from the audio file and send to the decoder
     int len = audio_file.read(filebuff, 512);
@@ -417,30 +436,20 @@ void send_audio(void)
     // if the audio data was shorter than 512 bytes, we've reached the end of the file
     if (len != 512)
     {
+      audio_trig = false;
+      audio_played++;
+
       audio_file.close();
-      audio_started = false;
+      stop_speaker();
     }
   }
 }
-/*
-Description: turn off speaker when not in use to prevent overheating and ringing noise
-Inputs:      void
-Outputs:     void
-Parameters:  void
-Returns:     void
-*/
-void stop_speaker(void) {
-  // Stop audio playback
-  pinMode(AUDIO_OUT, OUTPUT);
-  digitalWrite(AUDIO_OUT, LOW);  // Ensure no voltage goes to the speaker
-}
-
 
 /*
 Description: Helper function to write value to register over I2C
 Inputs: void
 Outputs: void
-Parameters: address (unsigned 8-bit), reg (unsigned 8-bit), value (unsigned 16-bit)
+Parameters: (uint8_t)address, (uint8_t)reg, (uint16_t)value
 Returns: void
 */
 void write_register(uint8_t address, uint8_t reg, uint16_t value)
@@ -458,8 +467,8 @@ void write_register(uint8_t address, uint8_t reg, uint16_t value)
 Description: Helper function to read value from register over I2C
 Inputs: void
 Outputs: void
-Parameters: address (unsigned 8-bit), reg (unsigned 8-bit)
-Returns: 2 bytes of data
+Parameters: (uint8_t)address, (uint8_t)reg
+Returns: (uint16_t)value
 */
 uint16_t read_register(uint8_t address, uint8_t reg)
 {
@@ -489,6 +498,7 @@ Returns:     void
 */
 void setup(void)
 {
+  stop_speaker(); // Don't overheat speaker
 
   // Intitalize Voltage/Current Sensor
   Wire.begin();
@@ -529,7 +539,8 @@ void setup(void)
   pixel.setPixelColor(0, 255, 0, 0);
   pixel.show();
 
-  sd.begin(config); // Initialize the SD card
+  mp3.begin();      // Initialize mp3 module
+  sd.begin(config); // Initialize the SD card without blocking in case it doesn't read
 
   // Setting to drive,brake motors output mode
   pinMode(DRIVE_PIN, OUTPUT);
@@ -566,17 +577,21 @@ void setup(void)
     busy_wait_ms(200);
   }
 
-  // Play start music
-  if (!audio_started)
-  {
-    audio_file = sd.open(start_music, FILE_READ); // Open corresponding SD card mp3 file
-    while (audio_file)                               // If the audio file opened successfully
-    {
-      send_audio(); // If the audio file has been opened and is still open, send an audio data chunk
-    }
-  }
-  stop_speaker();
+  door_motor(DOOR_CLOSE, 154); // Start closing door
 
+  // Play sound effect for doors
+  if (audio_played == 0)
+  {
+    audio_file = sd.open(door_close_sound, FILE_READ); // Open corresponding SD card mp3 file
+    start_speaker();
+  }
+
+  while (audio_file) // If the audio file opened successfully
+  {
+    send_audio(); // If the audio file has been opened and is still open, send an audio data chunk
+  }
+
+  door_motor(DOOR_STOP, 0); // Stop closing door
 
   // Initialize servos to default position
   prop_servo.writeMicroseconds(450);
@@ -596,15 +611,27 @@ void setup(void)
   servo_dump(prop_servo, 2500, 3000);
 
   // Wait for busVolatge to surpass 7V
-  while (bus_voltage < 7)
+  // while (bus_voltage < 7)
+  // {
+  //   raw_bus = read_register(A219_I2C, 0x02);
+  //   bus_voltage = (raw_bus >> 3) * 0.004;
+  // }
+
+  // Play sound effect for time circuit initialization
+  if (audio_played == 1)
   {
-    raw_bus = read_register(A219_I2C, 0x02);
-    bus_voltage = (raw_bus >> 3) * 0.004;
+    audio_file = sd.open(time_circuit_sound, FILE_READ); // Open corresponding SD card mp3 file
+    start_speaker();
+  }
+
+  while (audio_file) // If the audio file opened successfully
+  {
+    send_audio(); // If the audio file has been opened and is still open, send an audio data chunk
   }
 
   servo_dump(brak_servo, 2500, 3000);
 
-  start_time = micros(); // First measurement saved seperately
+  start_time = time_us_32(); // First measurement saved seperately
 
   // busy_wait_ms(17000);
 
@@ -622,8 +649,6 @@ void setup(void)
 
   pixel.setPixelColor(0, 0, 0, 255); // Indicate setup complete status
   pixel.show();
-
-  mp3.begin();
 
   drive_ssr(); // Start drive
 }
@@ -643,7 +668,10 @@ void loop(void)
 
   curr_time = (time_us_32() - start_time) / 1000000.0f; // Taken to check time against first measurement
 
-  pid_loop(); // Run PID controller
+  if (running)
+  {
+    pid_loop(); // Run PID controller
+  }
 
   raw_bus = read_register(A219_I2C, 0x02);
   bus_voltage = (raw_bus >> 3) * 0.004;
@@ -652,37 +680,52 @@ void loop(void)
   current_mA = raw_current * 0.1;
 
   // If outside of 3-14V range of > 1A current draw then stop
-  if (bus_voltage > 14 || bus_voltage < 3 || current_mA > 1000)
-  {
-    brake_ssr();
-
-    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
-    pixel.show();
-  }
-
-  // if (TURB_THRESHOLD <= turbidity)
+  // if (bus_voltage > 14 || bus_voltage < 3 || current_mA > 1000)
   // {
-  //   // Stop driving
   //   brake_ssr();
 
-  //   // Indicate status to be finished
-  //   pixel.setPixelColor(0, 0, 255, 0);
+  //   pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
   //   pixel.show();
-  //   DoorSequence(128, 1000, 1000, 1000); // Placeholders
-  //   // stopping stirring motor
-  //   analogWrite(stir_pin_1, LOW);
-  //   analogWrite(stir_pin_2, LOW);
-  //   // Play stop music
-  //   audio_file = sd.open(stop_music, FILE_READ);
+  // }
+
+  // if (turbidity >= TURB_THRESHOLD && running)
+  // {
+  //   running = false; // Set flag
+
+  //   brake_ssr();                                 // Stop driving
+  //   stop_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2); // Stop stirring motor
+  // }
+
+  // if (!running)
+  // {
+  //   if (audio_played == 2 && !audio_trig) // Play sound effect for time travel
+  //   {
+  //     audio_file = sd.open(time_travel_sound, FILE_READ);
+  //     start_speaker();
+  //     audio_trig = true;
+  //   }
+  //   else if (audio_played == 3 && !audio_trig) // Play sound effect for doors
+  //   {
+  //     // Indicate status to be finished
+  //     pixel.setPixelColor(0, 0, 255, 0);
+  //     pixel.show();
+
+  //     door_motor(DOOR_OPEN, 154); // Start opening door
+
+  //     audio_file = sd.open(door_open_sound, FILE_READ);
+  //     start_speaker();
+  //     audio_trig = true;
+  //   }
+  //   else if (audio_played == 4 && !audio_trig) // Done everything, run once
+  //   {
+  //     door_motor(DOOR_STOP, 0); // Stop opening door
+  //     audio_trig = true;
+  //   }
 
   //   // keep playing audio until file is closed
-  //   while (audio_file)
+  //   if (audio_file)
   //   {
   //     send_audio();
   //   }
-
-
-
   // }
-  // stop_speaker();
 }
