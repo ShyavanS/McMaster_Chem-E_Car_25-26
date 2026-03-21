@@ -690,10 +690,10 @@ void loop(void)
 
   // if (turbidity >= TURB_THRESHOLD && running)
   // {
-  //   running = false; // Set flag
-
   //   brake_ssr();                                 // Stop driving
   //   stop_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2); // Stop stirring motor
+  
+  //   running = false; // Set flag
   // }
 
   // if (!running)
