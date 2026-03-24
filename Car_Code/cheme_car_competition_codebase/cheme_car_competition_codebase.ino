@@ -124,10 +124,15 @@ double error = 0.0;      // Proportional error
 double last_error = 0.0; // Derivative error
 double sum_error = 0.0;  // Integral error
 
-// The following numbers need to be adjusted through testing
-const float K_P = 25.0; // Proportional weighting
-const float K_I = 0.0;  // Integral weighting
-const float K_D = 0.0;  // Derivative weighting
+/*
+The following numbers need to be refined through trial & error.
+Last good guess was 25 P, 0 I & D using cube root integral error term.
+Current value obtained through Ziegler–Nichols method with K_u = 30 & T_u = 266.7 ms.
+Cube root integral error term changed to standard PID integral error term to do so.
+*/
+const float K_P = 18.0;  // Proportional weighting
+const float K_I = 0.135; // Integral weighting
+const float K_D = 0.612; // Derivative weighting
 
 // Offsets & constants for PID
 const int SERVO_ANGLE = 1475;
@@ -332,7 +337,7 @@ void pid_loop(void)
   // Update errors
   last_error = error;
   error = GOAL_YAW - yaw_diff;
-  sum_error = max(min(sum_error + cbrt(error), MAX_OFFSET), -MAX_OFFSET);
+  sum_error = max(min(sum_error + error, MAX_OFFSET), -MAX_OFFSET);
 
   // Write to servos
   steering_servo.writeMicroseconds(SERVO_ANGLE + adj_pid_output);
@@ -611,11 +616,11 @@ void setup(void)
   servo_dump(prop_servo, 2500, 3000);
 
   // Wait for busVolatge to surpass 7V
-  // while (bus_voltage < 7)
-  // {
-  //   raw_bus = read_register(A219_I2C, 0x02);
-  //   bus_voltage = (raw_bus >> 3) * 0.004;
-  // }
+  while (bus_voltage < 7)
+  {
+    raw_bus = read_register(A219_I2C, 0x02);
+    bus_voltage = (raw_bus >> 3) * 0.004;
+  }
 
   // Play sound effect for time circuit initialization
   if (audio_played == 1)
@@ -680,52 +685,52 @@ void loop(void)
   current_mA = raw_current * 0.1;
 
   // If outside of 3-14V range of > 1A current draw then stop
-  // if (bus_voltage > 14 || bus_voltage < 3 || current_mA > 1000)
-  // {
-  //   brake_ssr();
+  if (bus_voltage > 14 || bus_voltage < 3 || current_mA > 1000)
+  {
+    brake_ssr();
 
-  //   pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
-  //   pixel.show();
-  // }
+    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
+    pixel.show();
+  }
 
-  // if (turbidity >= TURB_THRESHOLD && running)
-  // {
-  //   brake_ssr();                                 // Stop driving
-  //   stop_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2); // Stop stirring motor
+  if (turbidity >= TURB_THRESHOLD && running)
+  {
+    brake_ssr();                                 // Stop driving
+    stop_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2); // Stop stirring motor
   
-  //   running = false; // Set flag
-  // }
+    running = false; // Set flag
+  }
 
-  // if (!running)
-  // {
-  //   if (audio_played == 2 && !audio_trig) // Play sound effect for time travel
-  //   {
-  //     audio_file = sd.open(time_travel_sound, FILE_READ);
-  //     start_speaker();
-  //     audio_trig = true;
-  //   }
-  //   else if (audio_played == 3 && !audio_trig) // Play sound effect for doors
-  //   {
-  //     // Indicate status to be finished
-  //     pixel.setPixelColor(0, 0, 255, 0);
-  //     pixel.show();
+  if (!running)
+  {
+    if (audio_played == 2 && !audio_trig) // Play sound effect for time travel
+    {
+      audio_file = sd.open(time_travel_sound, FILE_READ);
+      start_speaker();
+      audio_trig = true;
+    }
+    else if (audio_played == 3 && !audio_trig) // Play sound effect for doors
+    {
+      // Indicate status to be finished
+      pixel.setPixelColor(0, 0, 255, 0);
+      pixel.show();
 
-  //     door_motor(DOOR_OPEN, 154); // Start opening door
+      door_motor(DOOR_OPEN, 154); // Start opening door
 
-  //     audio_file = sd.open(door_open_sound, FILE_READ);
-  //     start_speaker();
-  //     audio_trig = true;
-  //   }
-  //   else if (audio_played == 4 && !audio_trig) // Done everything, run once
-  //   {
-  //     door_motor(DOOR_STOP, 0); // Stop opening door
-  //     audio_trig = true;
-  //   }
+      audio_file = sd.open(door_open_sound, FILE_READ);
+      start_speaker();
+      audio_trig = true;
+    }
+    else if (audio_played == 4 && !audio_trig) // Done everything, run once
+    {
+      door_motor(DOOR_STOP, 0); // Stop opening door
+      audio_trig = true;
+    }
 
-  //   // keep playing audio until file is closed
-  //   if (audio_file)
-  //   {
-  //     send_audio();
-  //   }
-  // }
+    // keep playing audio until file is closed
+    if (audio_file)
+    {
+      send_audio();
+    }
+  }
 }
