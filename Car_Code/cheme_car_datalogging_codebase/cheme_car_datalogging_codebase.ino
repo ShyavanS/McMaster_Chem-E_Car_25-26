@@ -717,7 +717,7 @@ void setup(void)
   servo_dump(prop_servo, 2500, 3000);
 
   // Wait for busVolatge to surpass 7V
-  while (bus_voltage < 7)
+  while (bus_voltage < 9)
   {
     raw_bus = read_register(A219_I2C, 0x02);
     bus_voltage = (raw_bus >> 3) * 0.004;
@@ -793,7 +793,7 @@ void loop(void)
   current_mA = raw_current * 0.1;
 
   // If outside of 3-14V range of > 1A current draw then stop
-  if (bus_voltage > 14 || bus_voltage < 3 || current_mA > 1000)
+  if (bus_voltage > 13 || bus_voltage < 7 || current_mA > 1000)
   {
     brake_ssr();
 
