@@ -811,7 +811,7 @@ void loop(void)
       start_speaker();
       audio_trig = true;
 
-      
+    
       //Play blue and orange flashing(theatre chase) lights
       for (i=0;i<5;i++){
         theaterChase(strip.Color(0, 0, 255), 30); // Blue

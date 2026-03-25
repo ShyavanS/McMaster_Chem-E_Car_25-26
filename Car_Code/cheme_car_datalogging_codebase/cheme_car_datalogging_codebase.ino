@@ -90,6 +90,8 @@ Adafruit_BNO08x bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensor_value;
 
 Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status LED
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(STRIP_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); //Strip LEDs
+
 
 // Define files
 SdFat sd;
@@ -123,6 +125,9 @@ const float REJECT_THRESHOLD = 3.0;
 
 // define turbidity threshold for braking(THIS IS A PLACEHOLDER)
 const float TURB_THRESHOLD = 3000.0; // THIS IS A PLACEHOLDER!!!
+
+//number of strip leds
+const int STRIP_LEDS = 20; //ending lights
 
 // Define voltage & current monitor variables
 uint16_t raw_bus;
@@ -616,6 +621,14 @@ void setup(void)
   pixel.setPixelColor(0, 255, 0, 0);
   pixel.show();
 
+  //Indicate strip LEDs to be initialized
+  strip.begin();
+  strip.setBrightness(255);
+  strip.show(); // Initialize all pixels to 'off'
+  for(i=0;i<STRIP_LEDS;i++){
+    strip.setPixelColor(i, 0, 0, 255);//Set to all blue(for now)
+  }
+
   mp3.begin(); // Initialize mp3 module
   Serial.begin(115200);
 
@@ -856,6 +869,39 @@ void loop(void)
       audio_file = sd.open(door_open_sound, FILE_READ);
       start_speaker();
       audio_trig = true;
+
+      //Play blue and orange flashing(theatre chase) lights
+      for (i=0;i<5;i++){
+        theaterChase(strip.Color(0, 0, 255), 30); // Blue
+        theaterChase(strip.Color(255, 165, 0), 30); // Orange
+      }
+      
+      /*
+      //Blue and Orange alternating lights
+      for(j=0;j<10;j++){//for 10 iterations
+        //Start with blue = even
+        for (i=0;i<STRIP_LEDS;i++){
+          if(i%2==0){// if even, assign to blue
+            strip.setPixelColor(i, 0, 0, 255);
+          }else{
+            strip.setPixelColor(i, 165, 255, 0);
+          }
+        }
+        strip.show();
+        
+        //Switch to orange = even
+        for (i=0;i<STRIP_LEDS;i++){
+          if(i%2==0){// if even, assign to orange
+            strip.setPixelColor(i, 165, 255, 0);
+
+          }else{
+            strip.setPixelColor(i, 0, 0, 255);
+          }
+        }
+        strip.show();
+
+      }
+      */
     }
     else if (audio_played == 4 && !audio_trig) // Done everything, run once
     {
