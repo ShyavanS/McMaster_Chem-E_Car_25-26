@@ -572,8 +572,9 @@ void setup(void)
   strip.begin();
   strip.setBrightness(255);
   strip.show(); // Initialize all pixels to 'off'
-  for
-  strip.setPixelColor(0, 0, 0, 255);//Set to all blue(for now)
+  for(i=0;i<STRIP_LEDS;i++){
+    strip.setPixelColor(i, 0, 0, 255);//Set to all blue(for now)
+  }
 
 
   mp3.begin();      // Initialize mp3 module
