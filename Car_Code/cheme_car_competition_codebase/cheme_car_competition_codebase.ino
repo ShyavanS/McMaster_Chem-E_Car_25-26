@@ -43,6 +43,8 @@ More information is available in the readme.
 #define A219_I2C 0x40     // I2C address for current/voltage sensor
 #define AUDIO_OUT 12      // Define audio output pin
 
+#define STRIP_PIN 2//setting pin for stripLED data?
+
 // Struct for Euler Angles
 struct euler_t
 {
@@ -68,7 +70,31 @@ Servo steering_servo;
 Adafruit_BNO08x bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensor_value;
 
+//number of strip leds
+const int STRIP_LEDS = 28; //ending lights
+
 Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status LED
+Adafruit_NeoPixel strip(STRIP_LEDS, STRIP_PIN, NEO_GRB + NEO_KHZ800); //Strip LEDs
+
+// Define files
+SdFat sd;
+FsFile audio_file;
+String door_close_sound = "door_close_sound.mp3";
+String time_circuit_sound = "time_circuit_sound.mp3";
+String time_travel_sound = "time_travel_sound.mp3";
+String door_open_sound = "door_open_sound.mp3";
+SdSpiConfig config(SD_CS_PIN, DEDICATED_SPI, SD_SCK_MHZ(16), &SPI1);
+String file_name;
+
+// Set up audio output using PWM
+PWMAudio pwm(AUDIO_OUT);
+BackgroundAudioMP3 mp3(pwm); // create the mp3 player object and decoder
+uint8_t filebuff[512];       // allocates 512 bytes of memory to temporarily store audio data before processing
+
+// Runtime flags
+bool running = true;
+bool audio_trig = false;
+unsigned int audio_played = 0;
 
 // Define files
 SdFat sd;
@@ -98,6 +124,9 @@ const float REJECT_THRESHOLD = 3.0;
 
 // define turbidity threshold for braking(THIS IS A PLACEHOLDER)
 const float TURB_THRESHOLD = 3000.0; // THIS IS A PLACEHOLDER!!!
+
+
+
 
 // Define voltage & current monitor variables
 uint16_t raw_bus;
@@ -451,6 +480,30 @@ void send_audio(void)
 }
 
 /*
+Description: Theater-marquee-style chasing lights. 
+  Pass in a color (32-bit value,a la strip.Color(r,g,b) 
+  as mentioned above), and a delay time (in ms) between frames.
+  Taken from https://github.com/adafruit/Adafruit_NeoPixel/blob/master/examples/strandtest/strandtest.ino
+Inputs:      void
+Outputs:     void
+Parameters:  (uiny8_t)color, (int)wait
+Returns:     void
+*/
+void theaterChase(uint32_t colour, int wait) {
+  for(int a=0; a<10; a++) {  // Repeat 10 times...
+    for(int b=0; b<3; b++) { //  'b' counts from 0 to 2...
+      strip.clear();         //   Set all pixels in RAM to 0 (off)
+      // 'c' counts up from 'b' to end of strip in steps of 3...
+      for(int c=b; c<STRIP_LEDS; c += 3) {
+        strip.setPixelColor(c, colour); // Set pixel 'c' to value 'color'
+      }
+      strip.show(); // Update strip with new contents
+      delay(wait);  // Pause for a moment
+    }
+  }
+}
+
+/*
 Description: Helper function to write value to register over I2C
 Inputs: void
 Outputs: void
@@ -542,7 +595,9 @@ void setup(void)
   pixel.setBrightness(255);
   pixel.show();
   pixel.setPixelColor(0, 255, 0, 0);
-  pixel.show();
+
+  //Indicate strip LEDs to be initialized
+  strip.begin();
 
   mp3.begin();      // Initialize mp3 module
   sd.begin(config); // Initialize the SD card without blocking in case it doesn't read
@@ -725,6 +780,72 @@ void loop(void)
     {
       door_motor(DOOR_STOP, 0); // Stop opening door
       audio_trig = true;
+    }
+
+    // keep playing audio until file is closed
+    if (audio_file)
+    {
+      send_audio();
+    }
+  }
+
+  
+
+  raw_current = (int16_t)read_register(A219_I2C, 0x04);
+  current_mA = raw_current * 0.1;
+
+  // If outside of 3-14V range of > 1A current draw then stop
+  if (bus_voltage > 14 || bus_voltage < 3 || current_mA > 1000)
+  {
+    brake_ssr();
+
+    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
+    pixel.show();
+  }
+
+  if (turbidity >= TURB_THRESHOLD && running)
+  {
+    brake_ssr();                                 // Stop driving
+    stop_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2); // Stop stirring motor
+  
+    running = false; // Set flag
+  }
+
+  if (!running)
+  {
+    if (audio_played == 2 && !audio_trig) // Play sound effect for time travel
+    {
+      audio_file = sd.open(time_travel_sound, FILE_READ);
+      start_speaker();
+      audio_trig = true;
+    }
+    else if (audio_played == 3 && !audio_trig) // Play sound effect for doors
+    {
+      // Indicate status to be finished
+      pixel.setPixelColor(0, 0, 255, 0);
+      pixel.show();
+      
+
+      door_motor(DOOR_OPEN, 154); // Start opening door
+
+      audio_file = sd.open(door_open_sound, FILE_READ);
+      start_speaker();
+      audio_trig = true;
+
+
+    }
+    else if (audio_played == 4 && !audio_trig) // Done everything, run once
+    {
+      door_motor(DOOR_STOP, 0); // Stop opening door
+      audio_trig = true;
+
+    }
+    else if (audio_played==2){
+      for(int i = 0;i<STRIP_LEDS;i++){
+        strip.setPixelColor(i, pixels.Color(0, 255));
+      }
+      theaterChase(strip.Color(  0,   0, 255), 50); // Blue, half brightness
+      theaterChase(strip.Color(  165,   255, 0), 50); // Orange?, half brightness
     }
 
     // keep playing audio until file is closed
