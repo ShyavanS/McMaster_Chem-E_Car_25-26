@@ -55,6 +55,8 @@ information is available in the readme.
 #define A219_I2C 0x40     // I2C address for current/voltage sensor
 #define AUDIO_OUT 12      // Define audio output pin
 
+#define STRIP_PIN 2//setting pin for stripLED data?
+
 using namespace encoder;
 
 // Struct for Euler Angles
@@ -89,8 +91,11 @@ Encoder drive_encoder(PIO pio0, 3, {ENC_A, ENC_B}, PIN_UNUSED, NORMAL_DIR, PPR, 
 Adafruit_BNO08x bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensor_value;
 
+//number of strip leds
+const int STRIP_LEDS = 28; //ending lights
+
 Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status LED
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(STRIP_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); //Strip LEDs
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(STRIP_LEDS, STRIP_PIN, NEO_GRB + NEO_KHZ800); //Strip LEDs
 
 
 // Define files
@@ -528,6 +533,30 @@ void send_audio(void)
 }
 
 /*
+Description: Theater-marquee-style chasing lights. 
+  Pass in a color (32-bit value,a la strip.Color(r,g,b) 
+  as mentioned above), and a delay time (in ms) between frames.
+  Taken from https://github.com/adafruit/Adafruit_NeoPixel/blob/master/examples/strandtest/strandtest.ino
+Inputs:      void
+Outputs:     void
+Parameters:  (uiny8_t)color, (int)wait
+Returns:     void
+*/
+void theaterChase(uint32_t colour, int wait) {
+  for(int a=0; a<10; a++) {  // Repeat 10 times...
+    for(int b=0; b<3; b++) { //  'b' counts from 0 to 2...
+      strip.clear();         //   Set all pixels in RAM to 0 (off)
+      // 'c' counts up from 'b' to end of strip in steps of 3...
+      for(int c=b; c<STRIP_LEDS; c += 3) {
+        strip.setPixelColor(c, colour); // Set pixel 'c' to value 'color'
+      }
+      strip.show(); // Update strip with new contents
+      delay(wait);  // Pause for a moment
+    }
+  }
+}
+
+/*
 Description: Helper function to write value to register over I2C
 Inputs: void
 Outputs: void
@@ -623,12 +652,7 @@ void setup(void)
 
   //Indicate strip LEDs to be initialized
   strip.begin();
-  strip.setBrightness(255);
-  strip.show(); // Initialize all pixels to 'off'
-  for(i=0;i<STRIP_LEDS;i++){
-    strip.setPixelColor(i, 0, 0, 255);//Set to all blue(for now)
-  }
-
+  
   mp3.begin(); // Initialize mp3 module
   Serial.begin(115200);
 
@@ -907,6 +931,13 @@ void loop(void)
     {
       door_motor(DOOR_STOP, 0); // Stop opening door
       audio_trig = true;
+    }
+    else if (audio_played==2){
+      for(int i = 0;i<STRIP_LEDS;i++){
+        strip.setPixelColor(i, pixels.Color(0, 255));
+      }
+      theaterChase(strip.Color(  0,   0, 255), 50); // Blue, half brightness
+      theaterChase(strip.Color(  165,   255, 0), 50); // Orange?, half brightness
     }
 
     // keep playing audio until file is closed
