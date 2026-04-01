@@ -96,8 +96,8 @@ const float GOAL_YAW = 0.0;
 // Rejection threshold for noise in IMU measurements
 const float REJECT_THRESHOLD = 3.0;
 
-// define turbidity threshold for braking(THIS IS A PLACEHOLDER)
-const float TURB_THRESHOLD = 3000.0; // THIS IS A PLACEHOLDER!!!
+// define turbidity threshold for braking
+const float TURB_THRESHOLD = 3500.0;
 
 // Define voltage & current monitor variables
 uint16_t raw_bus;
@@ -124,12 +124,8 @@ double error = 0.0;      // Proportional error
 double last_error = 0.0; // Derivative error
 double sum_error = 0.0;  // Integral error
 
-/*
-The following numbers need to be refined through trial & error.
-Last good guess was 25 P, 0 I & D using cube root integral error term.
-Current value obtained through Ziegler–Nichols method with K_u = 30 & T_u = 266.7 ms.
-Cube root integral error term changed to standard PID integral error term to do so.
-*/
+// Current values obtained through Ziegler–Nichols method with K_u = 30 & T_u = 266.7 ms.
+// Divide derivative term by 100 to make sense on this timescale
 const float K_P = 18.0;  // Proportional weighting
 const float K_I = 0.135; // Integral weighting
 const float K_D = 0.612; // Derivative weighting
@@ -508,23 +504,11 @@ void setup(void)
   // Intitalize Voltage/Current Sensor
   Wire.begin();
 
-  /*
-  Write to config register (0x00)
-  Sets it to 16V bus range
-  Gain /4
-  12 bit ADC
-  Continuous Mode
-  */
-  // 8-sample averaging
-  // Needs about 5ms to process next batch of samples
+  // Write to config register (0x00), Sets it to 16V bus range, Gain /4, 12 bit ADC, Continuous Mode, 8-sample averaging
   write_register(A219_I2C, 0x00, 0x15DF);
 
-  /*
-  Write to calibration register (0x05)
-  Assumes 0.1 Ohm resistor and 2.0A max current (0.1 mA per bit)
-  Uses formula 0.04096/(Resistor*Current_Per_Bit)
-  Writes 4096 in this case
-  */
+  // Write to calibration register (0x05), 0.1 Ohm resistor and 2.0A max current (0.1 mA per bit)
+  // Uses formula 0.04096/(Resistor*Current_Per_Bit), 12 bit scaling
   write_register(A219_I2C, 0x05, 0x1000);
 
   // --- READ BUS VOLTAGE (0x02) ---
@@ -638,8 +622,6 @@ void setup(void)
 
   start_time = time_us_32(); // First measurement saved seperately
 
-  // busy_wait_ms(17000);
-
   // Poll IMU one last time
   bno08x.getSensorEvent(&sensor_value);
   quaternion_to_euler_RV(&sensor_value.un.rotationVector, &ypr, true);
@@ -697,7 +679,11 @@ void loop(void)
   {
     brake_ssr();                                 // Stop driving
     stop_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2); // Stop stirring motor
-  
+
+    // Indicate status to be finished
+    pixel.setPixelColor(0, 0, 255, 0);
+    pixel.show();
+
     running = false; // Set flag
   }
 
@@ -711,10 +697,6 @@ void loop(void)
     }
     else if (audio_played == 3 && !audio_trig) // Play sound effect for doors
     {
-      // Indicate status to be finished
-      pixel.setPixelColor(0, 0, 255, 0);
-      pixel.show();
-
       door_motor(DOOR_OPEN, 154); // Start opening door
 
       audio_file = sd.open(door_open_sound, FILE_READ);
