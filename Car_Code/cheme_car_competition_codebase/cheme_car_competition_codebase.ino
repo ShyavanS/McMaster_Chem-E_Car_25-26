@@ -842,10 +842,10 @@ void loop(void)
     }
     else if (audio_played==2){
       for(int i = 0;i<STRIP_LEDS;i++){
-        strip.setPixelColor(i, pixels.Color(0, 255));
+        strip.setPixelColor(i, strip.Color(0, 255,0));
       }
       theaterChase(strip.Color(  0,   0, 255), 50); // Blue, half brightness
-      theaterChase(strip.Color(  165,   255, 0), 50); // Orange?, half brightness
+      theaterChase(strip.Color(  255,   165, 0), 50); // Orange?, half brightness
     }
 
     // keep playing audio until file is closed
