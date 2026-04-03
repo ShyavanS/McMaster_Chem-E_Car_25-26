@@ -57,6 +57,10 @@ information is available in the readme.
 
 using namespace encoder;
 
+// Datalogging constants
+const int DATA_SIZE = 6;
+const int RING_BUFF_SIZE = 128;
+
 // Struct for Euler Angles
 struct euler_t
 {
@@ -65,12 +69,31 @@ struct euler_t
   float roll;
 } ypr;
 
+struct logline_t
+{
+  double time;
+  double data_values[DATA_SIZE];
+};
+
 // Enumeration for door commands
 enum door_cmd
 {
   DOOR_STOP,
   DOOR_OPEN,
   DOOR_CLOSE
+};
+
+// Enumeration for multicore commands
+enum mutlicore_cmd
+{
+  PLAY_DOOR_OPEN = 1,
+  PLAY_DOOR_CLOSE,
+  PLAY_TIME_TRAVEL,
+  PLAY_TIME_CIRCUIT,
+  STATUS_ERROR,
+  STATUS_STARTED,
+  STATUS_STOPPED,
+  SD_INITIALIZED
 };
 
 // Encoder constants
@@ -109,11 +132,12 @@ BackgroundAudioMP3 mp3(pwm); // create the mp3 player object and decoder
 uint8_t filebuff[512];       // allocates 512 bytes of memory to temporarily store audio data before processing
 
 bool is_file_new = true; // Checks for new file
+bool logging = true;     // Logging flag
 
 // Runtime flags
-bool running = true;
-bool audio_trig = false;
-unsigned int audio_played = 0;
+volatile bool running = true;
+volatile bool audio_trig = false;
+volatile unsigned int audio_played = 0;
 
 // The target yaw angle to keep car straight
 const float GOAL_YAW = 0.0;
@@ -150,8 +174,13 @@ double curr_time = 0.0f;
 double prev_time = 0.0f;
 uint32_t start_time;
 
-const int DATA_SIZE = 6; // Number of items to log
-double data[DATA_SIZE];  // Data array
+// Datalogging variables
+double data[DATA_SIZE];
+logline_t write_buffer;
+logline_t read_buffer;
+volatile logline_t data_buffer[RING_BUFF_SIZE];
+volatile unsigned int read_idx = 0;
+volatile unsigned int write_idx = 0;
 
 // PID loop variables
 double error = 0.0;      // Proportional error
@@ -563,7 +592,7 @@ uint16_t read_register(uint8_t address, uint8_t reg)
 }
 
 /*
-Description: Arduino setup subroutine.
+Description: Arduino core 0 setup subroutine.
 Inputs:      void
 Outputs:     void
 Parameters:  void
@@ -571,8 +600,6 @@ Returns:     void
 */
 void setup(void)
 {
-  stop_speaker(); // Don't overheat speaker
-
   // Intitalize Voltage/Current Sensor
   Wire.begin();
 
@@ -593,44 +620,14 @@ void setup(void)
   // Multiply by calculated LSB (0.1mA)
   current_mA = raw_current * 0.1;
 
-  // Indicate status to be initialized
-  pixel.begin();
-  pixel.setBrightness(255);
-  pixel.show();
-  pixel.setPixelColor(0, 255, 0, 0);
-  pixel.show();
-
-  mp3.begin(); // Initialize mp3 module
   Serial.begin(115200);
 
-  // Initialize SD card with blocking to ensure data is logged before run is started
-  while (!sd.begin(config))
+  // Block if SD not initialized
+  if (rp2040.fifo.pop() != SD_INITIALIZED)
   {
-    busy_wait_ms(1000); // Wait for a second before retrying
+    while (1)
+      ;
   }
-
-  root = sd.open("/", FILE_READ); // Open SD root directory
-  run_count = -4;
-
-  while (true)
-  {
-    next_file = root.openNextFile();
-
-    if (next_file)
-    {
-      run_count++; // Increment with each existing file
-    }
-    else
-    {
-      next_file.close();
-      break;
-    }
-  }
-
-  root.close();
-
-  // Set file numbering
-  file_name = "Run_" + String(run_count) + ".csv";
 
   // Setting to drive,brake motors output mode
   pinMode(DRIVE_PIN, OUTPUT);
@@ -669,17 +666,10 @@ void setup(void)
 
   door_motor(DOOR_CLOSE, 154); // Start closing door
 
-  // Play sound effect for doors
-  if (audio_played == 0)
-  {
-    audio_file = sd.open(door_close_sound, FILE_READ); // Open corresponding SD card mp3 file
-    start_speaker();
-  }
+  rp2040.fifo.push(PLAY_DOOR_CLOSE);
 
-  while (audio_file) // If the audio file opened successfully
-  {
-    send_audio(); // If the audio file has been opened and is still open, send an audio data chunk
-  }
+  while (audio_played == 0)
+    ;
 
   door_motor(DOOR_STOP, 0); // Stop closing door
 
@@ -707,21 +697,14 @@ void setup(void)
     bus_voltage = (raw_bus >> 3) * 0.004;
   }
 
-  // Play sound effect for time circuit initialization
-  if (audio_played == 1)
-  {
-    audio_file = sd.open(time_circuit_sound, FILE_READ); // Open corresponding SD card mp3 file
-    start_speaker();
-  }
+  rp2040.fifo.push(PLAY_TIME_CIRCUIT);
 
-  while (audio_file) // If the audio file opened successfully
-  {
-    send_audio(); // If the audio file has been opened and is still open, send an audio data chunk
-  }
+  while (audio_played == 1)
+    ;
 
   servo_dump(brak_servo, 2500, 3000);
 
-  start_time = time_us_32(); // First measurement saved seperately
+  start_time = time_us_32(); // Braking start time
 
   // Poll IMU one last time
   bno08x.getSensorEvent(&sensor_value);
@@ -739,14 +722,13 @@ void setup(void)
 
   curr_time = (time_us_32() - start_time) / 1000000.0f; // Taken to update prev_time
 
-  pixel.setPixelColor(0, 0, 0, 255); // Indicate setup complete status
-  pixel.show();
+  rp2040.fifo.push(STATUS_STARTED);
 
   drive_ssr(); // Start drive
 }
 
 /*
-Description: Arduino loop subroutine.
+Description: Arduino core 0 loop subroutine.
 Inputs:      void
 Outputs:     void
 Parameters:  void
@@ -778,9 +760,7 @@ void loop(void)
   if (bus_voltage > 13 || bus_voltage < 7 || current_mA > 1000)
   {
     brake_ssr();
-
-    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
-    pixel.show();
+    rp2040.fifo.push(STATUS_ERROR);
   }
 
   // Update data array
@@ -791,34 +771,42 @@ void loop(void)
   data[4] = current_mA;
   data[5] = bus_voltage;
 
-  // Open csv file
-  data_file = sd.open(file_name, FILE_WRITE);
+  // Buffer write
+  write_buffer.time = curr_time;
 
-  // Write to csv file
-  if (data_file)
+  for (int i = 0; i < DATA_SIZE; i++)
   {
-    // Write file header
-    if (is_file_new)
-    {
-      data_file.println("Time (s),Turbidity (counts),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Wheel Distance (m),Current (mA),Voltage (V)");
-      is_file_new = false;
-    }
-
-    printer(false, curr_time, data); // Write variable data to the file in CSV format
-
-    data_file.close();
+    write_buffer.data_values[i] = data[i];
   }
 
-  printer(true, curr_time, data); // Write variable data to serial in CSV format
+  // Update ring buffer write index
+  unsigned int next_write = write_idx + 1;
+
+  if (next_write >= RING_BUFF_SIZE)
+  {
+    next_write = 0;
+  }
+
+  // If this isn't true, the buffer overflowed or logging is complete, drop the sample
+  if (next_write != read_idx && logging)
+  {
+    data_buffer[write_idx].time = write_buffer.time;
+
+    for (int i = 0; i < DATA_SIZE; i++)
+    {
+      data_buffer[write_idx].data_values[i] = write_buffer.data_values[i];
+    }
+
+    __asm__ volatile("" ::: "memory"); // Prevent reorder
+    write_idx = next_write;
+  }
 
   if (turbidity >= TURB_THRESHOLD && running)
   {
     brake_ssr();                                 // Stop driving
     stop_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2); // Stop stirring motor
 
-    // Indicate status to be finished
-    pixel.setPixelColor(0, 0, 255, 0);
-    pixel.show();
+    rp2040.fifo.push(STATUS_STOPPED);
 
     running = false; // Set flag
   }
@@ -827,16 +815,16 @@ void loop(void)
   {
     if (audio_played == 2 && !audio_trig) // Play sound effect for time travel
     {
-      audio_file = sd.open(time_travel_sound, FILE_READ);
-      start_speaker();
+      rp2040.fifo.push(PLAY_TIME_TRAVEL);
       audio_trig = true;
     }
     else if (audio_played == 3 && !audio_trig) // Play sound effect for doors
     {
-      door_motor(DOOR_OPEN, 154); // Start opening door
+      logging = false;
 
-      audio_file = sd.open(door_open_sound, FILE_READ);
-      start_speaker();
+      door_motor(DOOR_OPEN, 154); // Start opening door
+      rp2040.fifo.push(PLAY_DOOR_OPEN);
+
       audio_trig = true;
     }
     else if (audio_played == 4 && !audio_trig) // Done everything, run once
@@ -844,11 +832,163 @@ void loop(void)
       door_motor(DOOR_STOP, 0); // Stop opening door
       audio_trig = true;
     }
+  }
+}
 
-    // keep playing audio until file is closed
-    if (audio_file)
+/*
+Description: Arduino core 1 setup subroutine.
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
+void setup1(void)
+{
+  stop_speaker(); // Don't overheat speaker
+
+  // Indicate status to be initialized
+  pixel.begin();
+  pixel.setBrightness(255);
+  pixel.show();
+  pixel.setPixelColor(0, 255, 0, 0);
+  pixel.show();
+
+  mp3.begin(); // Initialize mp3 module
+
+  // Initialize SD card with blocking to ensure data is logged before run is started
+  while (!sd.begin(config))
+  {
+    busy_wait_ms(1000); // Wait for a second before retrying
+  }
+
+  rp2040.fifo.push(SD_INITIALIZED);
+
+  root = sd.open("/", FILE_READ); // Open SD root directory
+  run_count = -4;
+
+  while (true)
+  {
+    next_file = root.openNextFile();
+
+    if (next_file)
     {
-      send_audio();
+      run_count++; // Increment with each existing file
+    }
+    else
+    {
+      next_file.close();
+      break;
     }
   }
+
+  root.close();
+
+  // Set file numbering
+  file_name = "Run_" + String(run_count) + ".csv";
+}
+
+/*
+Description: Arduino core 1 loop subroutine.
+Inputs:      void
+Outputs:     void
+Parameters:  void
+Returns:     void
+*/
+void loop1(void)
+{
+  uint32_t cmd = 0;
+
+  rp2040.fifo.pop_nb(&cmd);
+
+  switch (cmd)
+  {
+  case PLAY_DOOR_OPEN:
+    audio_file = sd.open(door_open_sound, FILE_READ); // Open corresponding SD card mp3 file
+    start_speaker();
+    break;
+  case PLAY_DOOR_CLOSE:
+    audio_file = sd.open(door_close_sound, FILE_READ); // Open corresponding SD card mp3 file
+    start_speaker();
+    break;
+  case PLAY_TIME_TRAVEL:
+    audio_file = sd.open(time_travel_sound, FILE_READ); // Open corresponding SD card mp3 file
+    start_speaker();
+    break;
+  case PLAY_TIME_CIRCUIT:
+    audio_file = sd.open(time_circuit_sound, FILE_READ); // Open corresponding SD card mp3 file
+    start_speaker();
+    break;
+  case STATUS_ERROR:
+    pixel.setPixelColor(0, 255, 0, 0); // Indicate error status
+    pixel.show();
+    break;
+  case STATUS_STARTED:
+    pixel.setPixelColor(0, 0, 0, 255); // Indicate setup complete status
+    pixel.show();
+    break;
+  case STATUS_STOPPED:
+    pixel.setPixelColor(0, 0, 255, 0); // Indicate status to be finished
+    pixel.show();
+    break;
+  default:
+    break;
+  }
+
+  if (read_idx != write_idx)
+  {
+    // Open csv file
+    data_file = sd.open(file_name, FILE_WRITE);
+
+    // Write to csv file
+    if (data_file)
+    {
+      // Write file header
+      if (is_file_new)
+      {
+        data_file.println("Time (s),Turbidity (counts),Raw Yaw Angle (deg),Delta Yaw Angle (deg),Wheel Distance (m),Current (mA),Voltage (V)");
+        is_file_new = false;
+      }
+
+      read_buffer.time = data_buffer[read_idx].time;
+
+      for (int i = 0; i < DATA_SIZE; i++)
+      {
+        read_buffer.data_values[i] = data_buffer[read_idx].data_values[i];
+      }
+
+      printer(false, read_buffer.time, read_buffer.data_values); // Write variable data to the file in CSV format
+      data_file.close();
+
+      // Update ring buffer read index
+      unsigned int next_read = read_idx + 1;
+
+      if (next_read >= RING_BUFF_SIZE)
+      {
+        next_read = 0;
+      }
+
+      __asm__ volatile("" ::: "memory"); // Prevent reorder
+      read_idx = next_read;
+    }
+
+    printer(true, read_buffer.time, read_buffer.data_values); // Write variable data to serial in CSV format
+  }
+
+  if (audio_file) // If the audio file opened successfully
+  {
+    send_audio(); // If the audio file has been opened and is still open, send an audio data chunk
+  }
+
+  if (audio_played == 2 && !running)
+  {
+    // Time travel lights (TBD)
+  }
+
+  // Maybe? (TBD)
+  else if (audio_played == 2 && running && !audio_file)
+  {
+    // Runtime background track?
+  }
+
+  // Flux capacitor fluxing always (TBD)
 }
