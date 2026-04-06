@@ -56,6 +56,8 @@ information is available in the readme.
 #define A219_I2C 0x40     // I2C address for current/voltage sensor
 #define AUDIO_OUT 12      // Define audio output pin
 
+#define STRIP_LEDS 28
+#define STRIP_PIN 10
 using namespace encoder;
 
 // Struct for Euler Angles
@@ -66,6 +68,17 @@ struct euler_t
   float roll;
 } ypr;
 
+<<<<<<< Updated upstream
+=======
+// Enumeration for door commands
+enum door_cmd
+{
+  DOOR_STOP,
+  DOOR_OPEN,
+  DOOR_CLOSE
+};
+
+>>>>>>> Stashed changes
 // Encoder constants
 const float PPR = 8192.0;
 const double WHEEL_CIRCUMFERENCE_M = 0.398982;
@@ -81,8 +94,6 @@ Encoder drive_encoder(PIO pio0, 3, {ENC_A, ENC_B}, PIN_UNUSED, NORMAL_DIR, PPR, 
 // Create BNO085 instance
 Adafruit_BNO08x bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensor_value;
-
-Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status LED
 
 // Define files
 SdFat sd;
@@ -100,10 +111,26 @@ PWMAudio pwm(AUDIO_OUT);
 BackgroundAudioMP3 mp3(pwm); // create the mp3 player object and decoder
 uint8_t filebuff[512];       // allocates 512 bytes of memory to temporarily store audio data before processing
 
+<<<<<<< Updated upstream
 // Flag to check if audio started playing
 bool audio_started = false;
 
 bool is_file_new = true; // Checks for new file
+=======
+bool is_file_new = true; // Checks for new file
+
+bool breath_status = 0;
+int breath_brightness = 0;
+int colour = 0;
+
+Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status LED
+Adafruit_NeoPixel strip(STRIP_LEDS, STRIP_PIN, NEO_GRB + NEO_KHZ800); //Strip LEDs
+
+// Runtime flags
+bool running = true;
+bool audio_trig = false;
+unsigned int audio_played = 0;
+>>>>>>> Stashed changes
 
 // The target yaw angle to keep car straight
 const float GOAL_YAW = 0.0;
@@ -441,6 +468,7 @@ void send_audio(void)
 }
 
 /*
+<<<<<<< Updated upstream
 Description: turn off speaker when not in use to prevent overheating and ringing noise
 Inputs:      void
 Outputs:     void
@@ -451,6 +479,63 @@ void stop_speaker(void) {
   // Stop audio playback
   pinMode(AUDIO_OUT, OUTPUT);
   digitalWrite(AUDIO_OUT, LOW);  // Ensure no voltage goes to the speaker
+=======
+Description: Activates Orange/Blue car lights
+Inputs: void
+Outputs: void
+Parameters: void
+Returns: void
+*/
+void carLights(){
+ delay(1);
+  if (breath_status==0){
+    breath_brightness++;
+    if (breath_brightness==255){
+      breath_status = 1;
+    }
+  }else if(breath_status==1){
+    breath_brightness--;
+    if (breath_brightness==0){
+      breath_status = 0;
+      colour = !colour;
+    }
+  }
+ 
+  if(colour==1){
+    for(int i = 1;i<STRIP_LEDS;i++){
+      strip.setPixelColor(i, strip.Color(0, 0,(int)255*breath_brightness/255));//set rest of pixels blue for now...
+    }
+  }else{
+    for(int i = 1;i<STRIP_LEDS;i++){
+      strip.setPixelColor(i, strip.Color((int)255*breath_brightness/255, (int)100*breath_brightness/255,0));//set rest of pixels orange for now...
+    }
+  }
+  strip.show();
+}
+
+/*
+Description: Turns on flux capacitor light
+Inputs: void
+Outputs: void
+Parameters: void
+Returns: void
+*/
+void fluxCap() {
+  delay(1);
+  if (breath_status==0){
+    breath_brightness++;
+    if (breath_brightness==255){
+      breath_status = 1;
+    }
+  }else if(breath_status==1){
+    breath_brightness--;
+    if (breath_brightness==0){
+      breath_status = 0;
+    }
+  }
+ 
+  strip.setPixelColor(0, strip.Color((int)250*breath_brightness/255, (int)170*breath_brightness/255,(int)75*breath_brightness/255));
+>>>>>>> Stashed changes
 }
 
 /*
@@ -506,6 +591,10 @@ Returns:     void
 */
 void setup(void)
 {
+<<<<<<< Updated upstream
+=======
+  stop_speaker(); // Don't overheat speaker
+>>>>>>> Stashed changes
 
   // Intitalize Voltage/Current Sensor
   Wire.begin();
@@ -546,15 +635,28 @@ void setup(void)
   pixel.setPixelColor(0, 255, 0, 0);
   pixel.show();
 
+<<<<<<< Updated upstream
   Serial.begin(115200);
 
+=======
+  strip.begin();
+
+  mp3.begin(); // Initialize mp3 module
+  Serial.begin(115200);
+
+  // Initialize SD card with blocking to ensure data is logged before run is started
+>>>>>>> Stashed changes
   while (!sd.begin(config))
   {
     busy_wait_ms(1000); // Wait for a second before retrying
   }
 
   root = sd.open("/", FILE_READ); // Open SD root directory
+<<<<<<< Updated upstream
   run_count = 0;
+=======
+  run_count = -4;
+>>>>>>> Stashed changes
 
   while (true)
   {
@@ -611,6 +713,7 @@ void setup(void)
     busy_wait_ms(200);
   }
 
+<<<<<<< Updated upstream
   // Play start music
   if (!audio_started)
   {
@@ -621,6 +724,23 @@ void setup(void)
     }
   }
   stop_speaker();
+=======
+  door_motor(DOOR_CLOSE, 154); // Start closing door
+
+  // Play sound effect for doors
+  if (audio_played == 0)
+  {
+    audio_file = sd.open(door_close_sound, FILE_READ); // Open corresponding SD card mp3 file
+    start_speaker();
+  }
+
+  while (audio_file) // If the audio file opened successfully
+  {
+    send_audio(); // If the audio file has been opened and is still open, send an audio data chunk
+  }
+
+  door_motor(DOOR_STOP, 0); // Stop closing door
+>>>>>>> Stashed changes
 
   // Initialize servos to default position
   prop_servo.writeMicroseconds(450);
@@ -640,17 +760,40 @@ void setup(void)
   servo_dump(prop_servo, 2500, 3000);
 
   // Wait for busVolatge to surpass 7V
+<<<<<<< Updated upstream
   // while (bus_voltage < 7)
   // {
   //   raw_bus = read_register(A219_I2C, 0x02);
   //   bus_voltage = (raw_bus >> 3) * 0.004;
   // }
+=======
+  while (bus_voltage < 9)
+  {
+    raw_bus = read_register(A219_I2C, 0x02);
+    bus_voltage = (raw_bus >> 3) * 0.004;
+  }
+
+  // Play sound effect for time circuit initialization
+  if (audio_played == 1)
+  {
+    audio_file = sd.open(time_circuit_sound, FILE_READ); // Open corresponding SD card mp3 file
+    start_speaker();
+  }
+
+  while (audio_file) // If the audio file opened successfully
+  {
+    send_audio(); // If the audio file has been opened and is still open, send an audio data chunk
+  }
+>>>>>>> Stashed changes
 
   servo_dump(brak_servo, 2500, 3000);
 
   start_time = time_us_32(); // First measurement saved seperately
+<<<<<<< Updated upstream
 
   // busy_wait_ms(17000);
+=======
+>>>>>>> Stashed changes
 
   // Poll IMU one last time
   bno08x.getSensorEvent(&sensor_value);
@@ -670,8 +813,11 @@ void setup(void)
 
   pixel.setPixelColor(0, 0, 0, 255); // Indicate setup complete status
   pixel.show();
+<<<<<<< Updated upstream
 
   mp3.begin();
+=======
+>>>>>>> Stashed changes
 
   drive_ssr(); // Start drive
 }
@@ -702,7 +848,11 @@ void loop(void)
   raw_current = (int16_t)read_register(A219_I2C, 0x04);
   current_mA = raw_current * 0.1;
 
+  //Turn on flux capacitor LED for entire run
+  fluxCap();
+
   // If outside of 3-14V range of > 1A current draw then stop
+<<<<<<< Updated upstream
   // if (bus_voltage > 14 || bus_voltage < 3 || current_mA > 1000)
   // {
   //   brake_ssr();
@@ -710,6 +860,15 @@ void loop(void)
   //   pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
   //   pixel.show();
   // }
+=======
+  if (bus_voltage > 13 || bus_voltage < 7 || current_mA > 1000)
+  {
+    brake_ssr();
+
+    pixel.setPixelColor(0, 255, 0, 0); // Turn LED to red
+    pixel.show();
+  }
+>>>>>>> Stashed changes
 
   // Update data array
   data[0] = turbidity;
@@ -738,16 +897,30 @@ void loop(void)
   }
 
   printer(true, curr_time, data); // Write variable data to serial in CSV format
+<<<<<<< Updated upstream
 
   // if (TURB_THRESHOLD <= turbidity)
   // {
   //   // Stop driving
   //   brake_ssr();
+=======
+
+  if (turbidity >= TURB_THRESHOLD && running)
+  {
+    brake_ssr();                                 // Stop driving
+    stop_stir(BRAK_STIR_PWM_1, BRAK_STIR_PWM_2); // Stop stirring motor
+
+    // Indicate status to be finished
+    pixel.setPixelColor(0, 0, 255, 0);
+    pixel.show();
+
+>>>>>>> Stashed changes
 
   //   // Indicate status to be finished
   //   pixel.setPixelColor(0, 0, 255, 0);
   //   pixel.show();
 
+<<<<<<< Updated upstream
   //   // stopping stirring motor
   //   analogWrite(stir_pin_1, LOW);
   //   analogWrite(stir_pin_2, LOW);
@@ -763,3 +936,35 @@ void loop(void)
   // }
   // stop_speaker();
 }
+=======
+  if (!running)
+  {
+    carLights();
+    if (audio_played == 2 && !audio_trig) // Play sound effect for time travel
+    {
+      audio_file = sd.open(time_travel_sound, FILE_READ);
+      start_speaker();
+      audio_trig = true;
+    }
+    else if (audio_played == 3 && !audio_trig) // Play sound effect for doors
+    {
+      door_motor(DOOR_OPEN, 154); // Start opening door
+
+      audio_file = sd.open(door_open_sound, FILE_READ);
+      start_speaker();
+      audio_trig = true;
+    }
+    else if (audio_played == 4 && !audio_trig) // Done everything, run once
+    {
+      door_motor(DOOR_STOP, 0); // Stop opening door
+      audio_trig = true;
+    }
+
+    // keep playing audio until file is closed
+    if (audio_file)
+    {
+      send_audio();
+    }
+  }
+}
+>>>>>>> Stashed changes
