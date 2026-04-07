@@ -26,7 +26,8 @@ information is available in the readme.
 #include "encoder/encoder.cpp" // Modified to remove debounce delays, don't replace!
 #include "encoder/encoder.hpp" // Modified to remove debounce delays, don't replace!
 
-#define NUM_LEDS 1 // Status LED
+#define NUM_LEDS 1    // Status LED
+#define STRIP_LEDS 28 // LED Strip
 
 // Define drive/brake motor pins
 #define DRIVE_PIN 9
@@ -49,6 +50,8 @@ information is available in the readme.
 #define ENC_A A0
 #define ENC_B A1
 
+#define STRIP_PIN 10 // Light pin
+
 #define TURBIDITY_SENS A2 // Pin for the turbidity sensor data line(right encoder and braking sensor switched pins)
 #define BNO08X_RESET -1   // No reset pin for IMU over I2C, only enabled for SPI
 #define SD_CS_PIN 23      // Define chip select pin for SD card
@@ -59,7 +62,7 @@ using namespace encoder;
 
 // Datalogging constants
 const int DATA_SIZE = 6;
-const int RING_BUFF_SIZE = 128;
+const int RING_BUFF_SIZE = 512;
 
 // Struct for Euler Angles
 struct euler_t
@@ -113,6 +116,7 @@ Adafruit_BNO08x bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensor_value;
 
 Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status LED
+Adafruit_NeoPixel strip(STRIP_LEDS, STRIP_PIN, NEO_GRB + NEO_KHZ800);  // Strip LEDs
 
 // Define files
 SdFat sd;
@@ -130,6 +134,12 @@ String file_name;
 PWMAudio pwm(AUDIO_OUT);     // Set up audio output using PWM
 BackgroundAudioMP3 mp3(pwm); // create the mp3 player object and decoder
 uint8_t filebuff[512];       // allocates 512 bytes of memory to temporarily store audio data before processing
+
+// LED variables
+bool breath_status = false;
+bool fluxing = false;
+int breath_brightness = 0;
+int colour = 0;
 
 bool is_file_new = true; // Checks for new file
 bool logging = true;     // Logging flag
@@ -548,6 +558,85 @@ void send_audio(void)
 }
 
 /*
+Description: Activates Orange/Blue car lights
+Inputs: void
+Outputs: void
+Parameters: void
+Returns: void
+*/
+
+void carLights()
+{
+  if (breath_status == 0)
+  {
+    breath_brightness++;
+
+    if (breath_brightness == 255)
+    {
+      breath_status = 1;
+    }
+  }
+  else if (breath_status == 1)
+  {
+    breath_brightness--;
+
+    if (breath_brightness == 0)
+    {
+      breath_status = 0;
+      colour = !colour;
+    }
+  }
+
+  if (colour == 1)
+  {
+    for (int i = 1; i < STRIP_LEDS; i++)
+    {
+      strip.setPixelColor(i, strip.Color(0, 0, (int)255 * breath_brightness / 255)); // set rest of pixels blue for now...
+    }
+  }
+  else
+  {
+    for (int i = 1; i < STRIP_LEDS; i++)
+    {
+      strip.setPixelColor(i, strip.Color((int)255 * breath_brightness / 255, (int)100 * breath_brightness / 255, 0)); // set rest of pixels orange for now...
+    }
+  }
+
+  strip.show();
+}
+
+/*
+Description: Turns on flux capacitor light
+Inputs: void
+Outputs: void
+Parameters: void
+Returns: void
+*/
+void fluxCap()
+{
+  if (breath_status == 0)
+  {
+    breath_brightness++;
+
+    if (breath_brightness == 255)
+    {
+      breath_status = 1;
+    }
+  }
+  else if (breath_status == 1)
+  {
+    breath_brightness--;
+
+    if (breath_brightness == 0)
+    {
+      breath_status = 0;
+    }
+  }
+
+  strip.setPixelColor(0, strip.Color((int)250 * breath_brightness / 255, (int)170 * breath_brightness / 255, (int)75 * breath_brightness / 255));
+}
+
+/*
 Description: Helper function to write value to register over I2C
 Inputs: void
 Outputs: void
@@ -690,12 +779,12 @@ void setup(void)
   // Dump reactants before starting drive
   servo_dump(prop_servo, 2500, 3000);
 
-  // Wait for busVolatge to surpass 7V
-  while (bus_voltage < 9)
-  {
-    raw_bus = read_register(A219_I2C, 0x02);
-    bus_voltage = (raw_bus >> 3) * 0.004;
-  }
+  // Wait for busVolatge to surpass 9V
+  // while (bus_voltage < 9)
+  // {
+  //   raw_bus = read_register(A219_I2C, 0x02);
+  //   bus_voltage = (raw_bus >> 3) * 0.004;
+  // }
 
   rp2040.fifo.push(PLAY_TIME_CIRCUIT);
 
@@ -756,12 +845,12 @@ void loop(void)
   raw_current = (int16_t)read_register(A219_I2C, 0x04);
   current_mA = raw_current * 0.1;
 
-  // If outside of 3-14V range of > 1A current draw then stop
-  if (bus_voltage > 13 || bus_voltage < 7 || current_mA > 1000)
-  {
-    brake_ssr();
-    rp2040.fifo.push(STATUS_ERROR);
-  }
+  // If outside of 7-13V range of > 1A current draw then stop
+  // if (bus_voltage > 13 || bus_voltage < 7 || current_mA > 1000)
+  // {
+  //   brake_ssr();
+  //   rp2040.fifo.push(STATUS_ERROR);
+  // }
 
   // Update data array
   data[0] = turbidity;
@@ -799,6 +888,9 @@ void loop(void)
 
     __asm__ volatile("" ::: "memory"); // Prevent reorder
     write_idx = next_write;
+  }
+  else {
+    Serial.println("Buffer overflow/logging stopped");
   }
 
   if (turbidity >= TURB_THRESHOLD && running)
@@ -853,7 +945,12 @@ void setup1(void)
   pixel.setPixelColor(0, 255, 0, 0);
   pixel.show();
 
-  mp3.begin(); // Initialize mp3 module
+  // LED strips
+  strip.begin();
+  strip.setBrightness(128);
+
+  // Speaker
+  mp3.begin();
 
   // Initialize SD card with blocking to ensure data is logged before run is started
   while (!sd.begin(config))
@@ -917,6 +1014,7 @@ void loop1(void)
   case PLAY_TIME_CIRCUIT:
     audio_file = sd.open(time_circuit_sound, FILE_READ); // Open corresponding SD card mp3 file
     start_speaker();
+    fluxing = true;
     break;
   case STATUS_ERROR:
     pixel.setPixelColor(0, 255, 0, 0); // Indicate error status
@@ -979,16 +1077,14 @@ void loop1(void)
     send_audio(); // If the audio file has been opened and is still open, send an audio data chunk
   }
 
+  if (fluxing)
+  {
+    Serial.println("fluxing");
+    fluxCap();
+  }
+
   if (audio_played == 2 && !running)
   {
-    // Time travel lights (TBD)
+    carLights();
   }
-
-  // Maybe? (TBD)
-  else if (audio_played == 2 && running && !audio_file)
-  {
-    // Runtime background track?
-  }
-
-  // Flux capacitor fluxing always (TBD)
 }

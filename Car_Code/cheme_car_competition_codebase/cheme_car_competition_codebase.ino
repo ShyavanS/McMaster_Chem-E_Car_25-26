@@ -617,7 +617,7 @@ void setup(void)
   // Dump reactants before starting drive
   servo_dump(prop_servo, 2500, 3000);
 
-  // Wait for busVolatge to surpass 7V
+  // Wait for busVolatge to surpass 9V
   while (bus_voltage < 9)
   {
     raw_bus = read_register(A219_I2C, 0x02);
@@ -676,7 +676,7 @@ void loop(void)
   raw_current = (int16_t)read_register(A219_I2C, 0x04);
   current_mA = raw_current * 0.1;
 
-  // If outside of 3-14V range of > 1A current draw then stop
+  // If outside of 7-13V range of > 1A current draw then stop
   if (bus_voltage > 13 || bus_voltage < 7 || current_mA > 1000)
   {
     brake_ssr();
@@ -798,12 +798,6 @@ void loop1(void)
   if (audio_played == 2 && !running)
   {
     // Time travel lights (TBD)
-  }
-
-  // Maybe? (TBD)
-  else if (audio_played == 2 && running && !audio_file)
-  {
-    // Runtime background track?
   }
 
   // Flux capacitor fluxing always (TBD)
