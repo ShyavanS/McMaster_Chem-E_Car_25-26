@@ -18,7 +18,8 @@ More information is available in the readme.
 #include "hardware/timer.h"
 #include "pico/stdlib.h"
 
-#define NUM_LEDS 1 // Status LED
+#define NUM_LEDS 1    // Status LED
+#define STRIP_LEDS 22 // LED Strip
 
 // Define drive and brake SSR pins
 #define DRIVE_PIN 9
@@ -37,15 +38,13 @@ More information is available in the readme.
 #define AUXDC_PWM_1 6
 #define AUXDC_PWM_2 5
 
+#define STRIP_PIN 10 // Light pin
+
 #define TURBIDITY_SENS A2 // Pin for the turbidity sensor data line(right encoder and braking sensor switched pins)
 #define BNO08X_RESET -1   // No reset pin for IMU over I2C, only enabled for SPI
 #define SD_CS_PIN 23      // Define chip select pin for SD card
 #define A219_I2C 0x40     // I2C address for current/voltage sensor
 #define AUDIO_OUT 12      // Define audio output pin
-
-// Datalogging constants
-const int DATA_SIZE = 6;
-const int RING_BUFF_SIZE = 128;
 
 // Struct for Euler Angles
 struct euler_t
@@ -54,12 +53,6 @@ struct euler_t
   float pitch;
   float roll;
 } ypr;
-
-struct logline_t
-{
-  double time;
-  double data_values[DATA_SIZE];
-};
 
 // Enumeration for door commands
 enum door_cmd
@@ -92,6 +85,7 @@ Adafruit_BNO08x bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensor_value;
 
 Adafruit_NeoPixel pixel(NUM_LEDS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800); // Status LED
+Adafruit_NeoPixel strip(STRIP_LEDS, STRIP_PIN, NEO_GRB + NEO_KHZ800);  // Strip LEDs
 
 // Define files
 SdFat sd;
@@ -107,6 +101,15 @@ String file_name;
 PWMAudio pwm(AUDIO_OUT);
 BackgroundAudioMP3 mp3(pwm); // create the mp3 player object and decoder
 uint8_t filebuff[512];       // allocates 512 bytes of memory to temporarily store audio data before processing
+
+// LED variables
+bool breath_status = false;
+bool fluxing = false;
+bool time_jump = false;
+int breath_brightness = 0;
+int t = 0;
+uint32_t tic;
+uint32_t toc;
 
 bool sd_init = false; // SD intialization flag
 
@@ -472,6 +475,87 @@ void send_audio(void)
 }
 
 /*
+Description: Activates Orange/Blue car lights
+Inputs: void
+Outputs: void
+Parameters: void
+Returns: void
+*/
+void car_lights(void)
+{
+  if (!breath_status)
+  {
+    breath_brightness += 10;
+
+    if (breath_brightness >= 255)
+    {
+      breath_brightness = 255;
+      breath_status = true;
+    }
+
+    for (int i = 1; i < STRIP_LEDS; i++)
+    {
+      strip.setPixelColor(i, 0, (int)255 * breath_brightness / 255, (int)255 * breath_brightness / 255); // set rest of pixels blue for now...
+    }
+  }
+  else
+  {
+    int spark = random(0, 50);
+
+    if (spark < 5)
+    {
+      for (int i = 1; i < STRIP_LEDS; i++)
+      {
+        strip.setPixelColor(i, 255, 40, 0); // set rest of pixels orange for now...
+      }
+    }
+    else
+    {
+      for (int i = 1; i < STRIP_LEDS; i++)
+      {
+        strip.setPixelColor(i, 0, 255, 255); // set rest of pixels blue for now...
+      }
+    }
+  }
+
+  strip.setPixelColor(0, 255, 255, 255);
+  strip.show();
+}
+
+/*
+Description: Turns on flux capacitor light
+Inputs: void
+Outputs: void
+Parameters: void
+Returns: void
+*/
+void flux_cap(void)
+{
+  t++;
+
+  // Base sinusoid + flicker
+  float wave = (sin(t * 0.1) + 1) * 0.5;
+  int base = 120 + wave * 100;
+  int flicker = random(-40, 40);
+  int b = constrain(base + flicker, 0, 255);
+
+  // Sudden burst for extra random behaviour
+  int burst = random(0, 50);
+
+  if (burst < 10)
+  {
+    b = 255;
+  }
+  else if (burst > 40)
+  {
+    b = 0;
+  }
+
+  strip.setPixelColor(0, b, b, b);
+  strip.show();
+}
+
+/*
 Description: Helper function to write value to register over I2C
 Inputs: void
 Outputs: void
@@ -729,9 +813,19 @@ void setup1(void)
   // Indicate status to be initialized
   pixel.begin();
   pixel.setBrightness(255);
-  pixel.show();
   pixel.setPixelColor(0, 255, 0, 0);
   pixel.show();
+
+  // LED strips
+  strip.begin();
+  strip.setBrightness(255);
+
+  for (int i = 0; i < STRIP_LEDS; i++)
+  {
+    strip.setPixelColor(i, 0, 0, 0);
+  }
+
+  strip.show();
 
   mp3.begin(); // Initialize mp3 module
 
@@ -741,6 +835,8 @@ void setup1(void)
   {
     rp2040.fifo.push(SD_INITIALIZED);
   }
+
+  toc = time_us_32(); // Set last update variable
 }
 
 /*
@@ -753,6 +849,7 @@ Returns:     void
 void loop1(void)
 {
   uint32_t cmd = 0;
+  tic = time_us_32();
 
   rp2040.fifo.pop_nb(&cmd);
 
@@ -767,10 +864,13 @@ void loop1(void)
     start_speaker();
     break;
   case PLAY_TIME_TRAVEL:
+    fluxing = false;
+    time_jump = true;
     audio_file = sd.open(time_travel_sound, FILE_READ); // Open corresponding SD card mp3 file
     start_speaker();
     break;
   case PLAY_TIME_CIRCUIT:
+    fluxing = true;
     audio_file = sd.open(time_circuit_sound, FILE_READ); // Open corresponding SD card mp3 file
     start_speaker();
     break;
@@ -795,10 +895,25 @@ void loop1(void)
     send_audio(); // If the audio file has been opened and is still open, send an audio data chunk
   }
 
-  if (audio_played == 2 && !running)
+  if (fluxing)
   {
-    // Time travel lights (TBD)
+    flux_cap();
   }
 
-  // Flux capacitor fluxing always (TBD)
+  if (audio_played == 2 && !running && tic - toc > 25000)
+  {
+    toc = time_us_32();
+    car_lights();
+  }
+  else if (!running && time_jump && audio_played != 2)
+  {
+    time_jump = false;
+
+    for (int i = 0; i < STRIP_LEDS; i++)
+    {
+      strip.setPixelColor(i, 0, 0, 0);
+    }
+
+    strip.show();
+  }
 }

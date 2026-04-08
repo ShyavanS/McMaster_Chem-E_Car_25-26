@@ -27,7 +27,7 @@ information is available in the readme.
 #include "encoder/encoder.hpp" // Modified to remove debounce delays, don't replace!
 
 #define NUM_LEDS 1    // Status LED
-#define STRIP_LEDS 28 // LED Strip
+#define STRIP_LEDS 22 // LED Strip
 
 // Define drive/brake motor pins
 #define DRIVE_PIN 9
@@ -62,7 +62,7 @@ using namespace encoder;
 
 // Datalogging constants
 const int DATA_SIZE = 6;
-const int RING_BUFF_SIZE = 512;
+const int RING_BUFF_SIZE = 1024;
 
 // Struct for Euler Angles
 struct euler_t
@@ -96,7 +96,8 @@ enum mutlicore_cmd
   STATUS_ERROR,
   STATUS_STARTED,
   STATUS_STOPPED,
-  SD_INITIALIZED
+  SD_INITIALIZED,
+  LOGGING_COMPLETE
 };
 
 // Encoder constants
@@ -138,16 +139,20 @@ uint8_t filebuff[512];       // allocates 512 bytes of memory to temporarily sto
 // LED variables
 bool breath_status = false;
 bool fluxing = false;
+bool time_jump = false;
 int breath_brightness = 0;
-int colour = 0;
+int t = 0;
+uint32_t tic;
+uint32_t toc;
 
-bool is_file_new = true; // Checks for new file
-bool logging = true;     // Logging flag
+volatile bool logging = true; // Logging flag
+bool is_file_new = true;      // Checks for new file
 
 // Runtime flags
 volatile bool running = true;
 volatile bool audio_trig = false;
 volatile unsigned int audio_played = 0;
+unsigned int writes = 0;
 
 // The target yaw angle to keep car straight
 const float GOAL_YAW = 0.0;
@@ -186,8 +191,6 @@ uint32_t start_time;
 
 // Datalogging variables
 double data[DATA_SIZE];
-logline_t write_buffer;
-logline_t read_buffer;
 volatile logline_t data_buffer[RING_BUFF_SIZE];
 volatile unsigned int read_idx = 0;
 volatile unsigned int write_idx = 0;
@@ -307,7 +310,7 @@ Outputs:     void
 Parameters:  (bool)serial_true, (double)millis_time, (double)outputs[DATA_SIZE]
 Returns:     void
 */
-void printer(bool serial_true, double millis_time, double outputs[DATA_SIZE])
+void printer(bool serial_true, volatile double millis_time, volatile double outputs[DATA_SIZE])
 {
   if (serial_true) // Print data to serial or SD card file accordingly in .csv format
   {
@@ -564,44 +567,44 @@ Outputs: void
 Parameters: void
 Returns: void
 */
-
-void carLights()
+void car_lights(void)
 {
-  if (breath_status == 0)
+  if (!breath_status)
   {
-    breath_brightness++;
+    breath_brightness += 10;
 
-    if (breath_brightness == 255)
+    if (breath_brightness >= 255)
     {
-      breath_status = 1;
+      breath_brightness = 255;
+      breath_status = true;
     }
-  }
-  else if (breath_status == 1)
-  {
-    breath_brightness--;
 
-    if (breath_brightness == 0)
-    {
-      breath_status = 0;
-      colour = !colour;
-    }
-  }
-
-  if (colour == 1)
-  {
     for (int i = 1; i < STRIP_LEDS; i++)
     {
-      strip.setPixelColor(i, strip.Color(0, 0, (int)255 * breath_brightness / 255)); // set rest of pixels blue for now...
+      strip.setPixelColor(i, 0, (int)255 * breath_brightness / 255, (int)255 * breath_brightness / 255); // set rest of pixels blue for now...
     }
   }
   else
   {
-    for (int i = 1; i < STRIP_LEDS; i++)
+    int spark = random(0, 50);
+
+    if (spark < 5)
     {
-      strip.setPixelColor(i, strip.Color((int)255 * breath_brightness / 255, (int)100 * breath_brightness / 255, 0)); // set rest of pixels orange for now...
+      for (int i = 1; i < STRIP_LEDS; i++)
+      {
+        strip.setPixelColor(i, 255, 40, 0); // set rest of pixels orange for now...
+      }
+    }
+    else
+    {
+      for (int i = 1; i < STRIP_LEDS; i++)
+      {
+        strip.setPixelColor(i, 0, 255, 255); // set rest of pixels blue for now...
+      }
     }
   }
 
+  strip.setPixelColor(0, 255, 255, 255);
   strip.show();
 }
 
@@ -612,28 +615,30 @@ Outputs: void
 Parameters: void
 Returns: void
 */
-void fluxCap()
+void flux_cap(void)
 {
-  if (breath_status == 0)
+  t++;
+
+  // Base sinusoid + flicker
+  float wave = (sin(t * 0.1) + 1) * 0.5;
+  int base = 120 + wave * 100;
+  int flicker = random(-40, 40);
+  int b = constrain(base + flicker, 0, 255);
+
+  // Sudden burst for extra random behaviour
+  int burst = random(0, 50);
+
+  if (burst < 10)
   {
-    breath_brightness++;
-
-    if (breath_brightness == 255)
-    {
-      breath_status = 1;
-    }
+    b = 255;
   }
-  else if (breath_status == 1)
+  else if (burst > 40)
   {
-    breath_brightness--;
-
-    if (breath_brightness == 0)
-    {
-      breath_status = 0;
-    }
+    b = 0;
   }
 
-  strip.setPixelColor(0, strip.Color((int)250 * breath_brightness / 255, (int)170 * breath_brightness / 255, (int)75 * breath_brightness / 255));
+  strip.setPixelColor(0, b, b, b);
+  strip.show();
 }
 
 /*
@@ -860,14 +865,6 @@ void loop(void)
   data[4] = current_mA;
   data[5] = bus_voltage;
 
-  // Buffer write
-  write_buffer.time = curr_time;
-
-  for (int i = 0; i < DATA_SIZE; i++)
-  {
-    write_buffer.data_values[i] = data[i];
-  }
-
   // Update ring buffer write index
   unsigned int next_write = write_idx + 1;
 
@@ -879,18 +876,15 @@ void loop(void)
   // If this isn't true, the buffer overflowed or logging is complete, drop the sample
   if (next_write != read_idx && logging)
   {
-    data_buffer[write_idx].time = write_buffer.time;
+    data_buffer[write_idx].time = curr_time;
 
     for (int i = 0; i < DATA_SIZE; i++)
     {
-      data_buffer[write_idx].data_values[i] = write_buffer.data_values[i];
+      data_buffer[write_idx].data_values[i] = data[i];
     }
 
     __asm__ volatile("" ::: "memory"); // Prevent reorder
     write_idx = next_write;
-  }
-  else {
-    Serial.println("Buffer overflow/logging stopped");
   }
 
   if (turbidity >= TURB_THRESHOLD && running)
@@ -922,6 +916,7 @@ void loop(void)
     else if (audio_played == 4 && !audio_trig) // Done everything, run once
     {
       door_motor(DOOR_STOP, 0); // Stop opening door
+      rp2040.fifo.push(LOGGING_COMPLETE);
       audio_trig = true;
     }
   }
@@ -941,13 +936,19 @@ void setup1(void)
   // Indicate status to be initialized
   pixel.begin();
   pixel.setBrightness(255);
-  pixel.show();
   pixel.setPixelColor(0, 255, 0, 0);
   pixel.show();
 
   // LED strips
   strip.begin();
-  strip.setBrightness(128);
+  strip.setBrightness(255);
+
+  for (int i = 0; i < STRIP_LEDS; i++)
+  {
+    strip.setPixelColor(i, 0, 0, 0);
+  }
+
+  strip.show();
 
   // Speaker
   mp3.begin();
@@ -980,8 +981,9 @@ void setup1(void)
 
   root.close();
 
-  // Set file numbering
-  file_name = "Run_" + String(run_count) + ".csv";
+  file_name = "Run_" + String(run_count) + ".csv"; // Set file numbering
+  toc = time_us_32();                              // Set last update variable
+  data_file = sd.open(file_name, FILE_WRITE);      // Open csv file
 }
 
 /*
@@ -994,6 +996,7 @@ Returns:     void
 void loop1(void)
 {
   uint32_t cmd = 0;
+  tic = time_us_32();
 
   rp2040.fifo.pop_nb(&cmd);
 
@@ -1008,13 +1011,15 @@ void loop1(void)
     start_speaker();
     break;
   case PLAY_TIME_TRAVEL:
+    fluxing = false;
+    time_jump = true;
     audio_file = sd.open(time_travel_sound, FILE_READ); // Open corresponding SD card mp3 file
     start_speaker();
     break;
   case PLAY_TIME_CIRCUIT:
+    fluxing = true;
     audio_file = sd.open(time_circuit_sound, FILE_READ); // Open corresponding SD card mp3 file
     start_speaker();
-    fluxing = true;
     break;
   case STATUS_ERROR:
     pixel.setPixelColor(0, 255, 0, 0); // Indicate error status
@@ -1028,15 +1033,17 @@ void loop1(void)
     pixel.setPixelColor(0, 0, 255, 0); // Indicate status to be finished
     pixel.show();
     break;
+  case LOGGING_COMPLETE:
+    data_file.close();
+    pixel.setPixelColor(0, 0, 255, 255); // Indicate status to be logged
+    pixel.show();
+    break;
   default:
     break;
   }
 
-  if (read_idx != write_idx)
+  if (read_idx != write_idx && logging)
   {
-    // Open csv file
-    data_file = sd.open(file_name, FILE_WRITE);
-
     // Write to csv file
     if (data_file)
     {
@@ -1047,15 +1054,16 @@ void loop1(void)
         is_file_new = false;
       }
 
-      read_buffer.time = data_buffer[read_idx].time;
+      printer(false, data_buffer[read_idx].time, data_buffer[read_idx].data_values); // Write variable data to the file in CSV format
+      printer(true, data_buffer[read_idx].time, data_buffer[read_idx].data_values);  // Write variable data to serial in CSV format
 
-      for (int i = 0; i < DATA_SIZE; i++)
+      writes++;
+
+      if (writes > RING_BUFF_SIZE)
       {
-        read_buffer.data_values[i] = data_buffer[read_idx].data_values[i];
+        writes = 0;
+        data_file.flush();
       }
-
-      printer(false, read_buffer.time, read_buffer.data_values); // Write variable data to the file in CSV format
-      data_file.close();
 
       // Update ring buffer read index
       unsigned int next_read = read_idx + 1;
@@ -1068,8 +1076,6 @@ void loop1(void)
       __asm__ volatile("" ::: "memory"); // Prevent reorder
       read_idx = next_read;
     }
-
-    printer(true, read_buffer.time, read_buffer.data_values); // Write variable data to serial in CSV format
   }
 
   if (audio_file) // If the audio file opened successfully
@@ -1079,12 +1085,23 @@ void loop1(void)
 
   if (fluxing)
   {
-    Serial.println("fluxing");
-    fluxCap();
+    flux_cap();
   }
 
-  if (audio_played == 2 && !running)
+  if (audio_played == 2 && !running && tic - toc > 25000)
   {
-    carLights();
+    toc = time_us_32();
+    car_lights();
+  }
+  else if (!running && time_jump && audio_played != 2)
+  {
+    time_jump = false;
+
+    for (int i = 0; i < STRIP_LEDS; i++)
+    {
+      strip.setPixelColor(i, 0, 0, 0);
+    }
+
+    strip.show();
   }
 }
