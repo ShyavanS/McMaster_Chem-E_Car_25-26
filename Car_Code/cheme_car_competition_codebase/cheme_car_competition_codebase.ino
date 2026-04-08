@@ -443,8 +443,11 @@ Returns:     void
 */
 void stop_speaker(void)
 {
-  pwm.end();
-  mp3.end();
+  while (!audio_file && !mp3.done())
+    ;
+
+  memset(filebuff, 0, 512);
+  mp3.write(filebuff, 512);
 }
 /*
 Description: Send audio data chunks to the decoder and close file when done
@@ -786,7 +789,7 @@ void loop(void)
     }
     else if (audio_played == 3 && !audio_trig) // Play sound effect for doors
     {
-      door_motor(DOOR_OPEN, 154); // Start opening door
+      door_motor(DOOR_OPEN, 255); // Start opening door
       rp2040.fifo.push(PLAY_DOOR_OPEN);
 
       audio_trig = true;
