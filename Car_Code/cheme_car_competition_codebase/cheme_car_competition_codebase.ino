@@ -422,19 +422,6 @@ void unwrap_yaw(void)
 }
 
 /*
-Description: Turn off speaker when not in use to prevent overheating and ringing noise
-Inputs:      void
-Outputs:     void
-Parameters:  void
-Returns:     void
-*/
-void start_speaker(void)
-{
-  pwm.begin(AUDIO_OUT);
-  mp3.begin();
-}
-
-/*
 Description: Turn on speaker before playing audio
 Inputs:      void
 Outputs:     void
@@ -811,6 +798,7 @@ Returns:     void
 */
 void setup1(void)
 {
+  mp3.begin();    // Start speaker
   stop_speaker(); // Don't overheat speaker
 
   // Indicate status to be initialized
@@ -864,18 +852,15 @@ void loop1(void)
     break;
   case PLAY_DOOR_CLOSE:
     audio_file = sd.open(door_close_sound, FILE_READ); // Open corresponding SD card mp3 file
-    start_speaker();
     break;
   case PLAY_TIME_TRAVEL:
     fluxing = false;
     time_jump = true;
     audio_file = sd.open(time_travel_sound, FILE_READ); // Open corresponding SD card mp3 file
-    start_speaker();
     break;
   case PLAY_TIME_CIRCUIT:
     fluxing = true;
     audio_file = sd.open(time_circuit_sound, FILE_READ); // Open corresponding SD card mp3 file
-    start_speaker();
     break;
   case STATUS_ERROR:
     pixel.setPixelColor(0, 255, 0, 0); // Indicate error status

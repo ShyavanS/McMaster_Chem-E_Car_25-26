@@ -513,19 +513,6 @@ Outputs:     void
 Parameters:  void
 Returns:     void
 */
-void start_speaker(void)
-{
-  pwm.begin(AUDIO_OUT);
-  mp3.begin();
-}
-
-/*
-Description: Turn on speaker before playing audio
-Inputs:      void
-Outputs:     void
-Parameters:  void
-Returns:     void
-*/
 void stop_speaker(void)
 {
   while (!audio_file && !mp3.done())
@@ -788,11 +775,11 @@ void setup(void)
   servo_dump(prop_servo, 2500, 3000);
 
   // Wait for busVolatge to surpass 9V
-  // while (bus_voltage < 9)
-  // {
-  //   raw_bus = read_register(A219_I2C, 0x02);
-  //   bus_voltage = (raw_bus >> 3) * 0.004;
-  // }
+  while (bus_voltage < 9)
+  {
+    raw_bus = read_register(A219_I2C, 0x02);
+    bus_voltage = (raw_bus >> 3) * 0.004;
+  }
 
   rp2040.fifo.push(PLAY_TIME_CIRCUIT);
 
@@ -854,11 +841,11 @@ void loop(void)
   current_mA = raw_current * 0.1;
 
   // If outside of 7-13V range of > 1A current draw then stop
-  // if (bus_voltage > 13 || bus_voltage < 7 || current_mA > 1000)
-  // {
-  //   brake_ssr();
-  //   rp2040.fifo.push(STATUS_ERROR);
-  // }
+  if (bus_voltage > 13 || bus_voltage < 7 || current_mA > 1000)
+  {
+    brake_ssr();
+    rp2040.fifo.push(STATUS_ERROR);
+  }
 
   // Update data array
   data[0] = turbidity;
@@ -934,6 +921,7 @@ Returns:     void
 */
 void setup1(void)
 {
+  mp3.begin();    // Start speaker
   stop_speaker(); // Don't overheat speaker
 
   // Indicate status to be initialized
@@ -952,9 +940,6 @@ void setup1(void)
   }
 
   strip.show();
-
-  // Speaker
-  mp3.begin();
 
   // Initialize SD card with blocking to ensure data is logged before run is started
   while (!sd.begin(config))
@@ -1007,22 +992,18 @@ void loop1(void)
   {
   case PLAY_DOOR_OPEN:
     audio_file = sd.open(door_open_sound, FILE_READ); // Open corresponding SD card mp3 file
-    start_speaker();
     break;
   case PLAY_DOOR_CLOSE:
     audio_file = sd.open(door_close_sound, FILE_READ); // Open corresponding SD card mp3 file
-    start_speaker();
     break;
   case PLAY_TIME_TRAVEL:
     fluxing = false;
     time_jump = true;
     audio_file = sd.open(time_travel_sound, FILE_READ); // Open corresponding SD card mp3 file
-    start_speaker();
     break;
   case PLAY_TIME_CIRCUIT:
     fluxing = true;
     audio_file = sd.open(time_circuit_sound, FILE_READ); // Open corresponding SD card mp3 file
-    start_speaker();
     break;
   case STATUS_ERROR:
     pixel.setPixelColor(0, 255, 0, 0); // Indicate error status
