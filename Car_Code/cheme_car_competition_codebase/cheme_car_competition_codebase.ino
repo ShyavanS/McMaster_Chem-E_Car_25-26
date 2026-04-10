@@ -776,6 +776,7 @@ void loop(void)
     }
     else if (audio_played == 3 && !audio_trig) // Play sound effect for doors
     {
+      busy_wait_ms(500);
       door_motor(DOOR_OPEN, 255); // Start opening door
       rp2040.fifo.push(PLAY_DOOR_OPEN);
 
@@ -848,7 +849,6 @@ void loop1(void)
   {
   case PLAY_DOOR_OPEN:
     audio_file = sd.open(door_open_sound, FILE_READ); // Open corresponding SD card mp3 file
-    start_speaker();
     break;
   case PLAY_DOOR_CLOSE:
     audio_file = sd.open(door_close_sound, FILE_READ); // Open corresponding SD card mp3 file

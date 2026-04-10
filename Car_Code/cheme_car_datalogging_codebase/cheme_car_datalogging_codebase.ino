@@ -898,6 +898,7 @@ void loop(void)
     {
       logging = false;
 
+      busy_wait_ms(500);
       door_motor(DOOR_OPEN, 255); // Start opening door
       rp2040.fifo.push(PLAY_DOOR_OPEN);
 
