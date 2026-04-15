@@ -94,6 +94,7 @@ String door_close_sound = "door_close_sound.mp3";
 String time_circuit_sound = "time_circuit_sound.mp3";
 String time_travel_sound = "time_travel_sound.mp3";
 String door_open_sound = "door_open_sound.mp3";
+String theme_music = "theme_music.mp3";
 SdSpiConfig config(SD_CS_PIN, DEDICATED_SPI, SD_SCK_MHZ(16), &SPI1);
 String file_name;
 
@@ -867,10 +868,13 @@ void loop1(void)
     pixel.show();
     break;
   case STATUS_STARTED:
-    pixel.setPixelColor(0, 0, 0, 255); // Indicate setup complete status
+    audio_file = sd.open(theme_music, FILE_READ); // Open corresponding SD card mp3 file
+    pixel.setPixelColor(0, 0, 0, 255);            // Indicate setup complete status
     pixel.show();
     break;
   case STATUS_STOPPED:
+    audio_file.close();
+    stop_speaker();
     pixel.setPixelColor(0, 0, 255, 0); // Indicate status to be finished
     pixel.show();
     break;
