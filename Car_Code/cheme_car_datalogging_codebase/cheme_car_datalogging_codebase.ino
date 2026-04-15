@@ -951,7 +951,7 @@ void setup1(void)
   rp2040.fifo.push(SD_INITIALIZED);
 
   root = sd.open("/", FILE_READ); // Open SD root directory
-  run_count = -4;
+  run_count = -5;
 
   while (true)
   {
