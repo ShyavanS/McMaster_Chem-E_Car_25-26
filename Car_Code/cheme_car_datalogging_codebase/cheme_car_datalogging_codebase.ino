@@ -202,7 +202,8 @@ double sum_error = 0.0;  // Integral error
 
 // Current values obtained through Ziegler–Nichols method with K_u = 30 & T_u = 266.7 ms.
 // Divide derivative term by 100 to make sense on this timescale
-const float K_P = 18.0;  // Proportional weighting
+// Added 4 to proportional since speed was changed with higher gearing
+const float K_P = 22.0;  // Proportional weighting
 const float K_I = 0.135; // Integral weighting
 const float K_D = 0.612; // Derivative weighting
 
@@ -772,11 +773,11 @@ void setup(void)
   servo_dump(prop_servo, 2500, 1000);
 
   // Wait for busVolatge to surpass 9V
-  // while (bus_voltage < 9)
-  // {
-  //   raw_bus = read_register(A219_I2C, 0x02);
-  //   bus_voltage = (raw_bus >> 3) * 0.004;
-  // }
+  while (bus_voltage < 9)
+  {
+    raw_bus = read_register(A219_I2C, 0x02);
+    bus_voltage = (raw_bus >> 3) * 0.004;
+  }
 
   rp2040.fifo.push(PLAY_TIME_CIRCUIT);
 
@@ -838,11 +839,11 @@ void loop(void)
   current_mA = raw_current * 0.1;
 
   // If outside of 7-13V range of > 1A current draw then stop
-  // if (bus_voltage > 13 || bus_voltage < 7 || current_mA > 1000)
-  // {
-  //   brake_ssr();
-  //   rp2040.fifo.push(STATUS_ERROR);
-  // }
+  if (bus_voltage > 13 || bus_voltage < 7 || current_mA > 1000)
+  {
+    brake_ssr();
+    rp2040.fifo.push(STATUS_ERROR);
+  }
 
   // Update data array
   data[0] = turbidity;

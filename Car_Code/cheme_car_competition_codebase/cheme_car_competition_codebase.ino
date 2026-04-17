@@ -155,7 +155,8 @@ double sum_error = 0.0;  // Integral error
 
 // Current values obtained through Ziegler–Nichols method with K_u = 30 & T_u = 266.7 ms.
 // Divide derivative term by 100 to make sense on this timescale
-const float K_P = 18.0;  // Proportional weighting
+// Added 4 to proportional since speed was changed with higher gearing
+const float K_P = 22.0;  // Proportional weighting
 const float K_I = 0.135; // Integral weighting
 const float K_D = 0.612; // Derivative weighting
 
