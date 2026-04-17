@@ -761,25 +761,22 @@ void setup(void)
   prop_servo.writeMicroseconds(450);
   prop_servo.attach(PROP_SERVO_PWM, 400, 2600);
   prop_servo.writeMicroseconds(450);
-  busy_wait_ms(2000);
   brak_servo.writeMicroseconds(450);
   brak_servo.attach(BRAK_SERVO_PWM, 400, 2600);
   brak_servo.writeMicroseconds(450);
-  busy_wait_ms(2000);
   steering_servo.writeMicroseconds(1475);
   steering_servo.attach(STEERING_SERVO_PWM, 400, 2600);
   steering_servo.writeMicroseconds(1475);
-  busy_wait_ms(2000);
 
   // Dump reactants before starting drive
-  servo_dump(prop_servo, 2500, 3000);
+  servo_dump(prop_servo, 2500, 1000);
 
   // Wait for busVolatge to surpass 9V
-  while (bus_voltage < 9)
-  {
-    raw_bus = read_register(A219_I2C, 0x02);
-    bus_voltage = (raw_bus >> 3) * 0.004;
-  }
+  // while (bus_voltage < 9)
+  // {
+  //   raw_bus = read_register(A219_I2C, 0x02);
+  //   bus_voltage = (raw_bus >> 3) * 0.004;
+  // }
 
   rp2040.fifo.push(PLAY_TIME_CIRCUIT);
 
@@ -841,11 +838,11 @@ void loop(void)
   current_mA = raw_current * 0.1;
 
   // If outside of 7-13V range of > 1A current draw then stop
-  if (bus_voltage > 13 || bus_voltage < 7 || current_mA > 1000)
-  {
-    brake_ssr();
-    rp2040.fifo.push(STATUS_ERROR);
-  }
+  // if (bus_voltage > 13 || bus_voltage < 7 || current_mA > 1000)
+  // {
+  //   brake_ssr();
+  //   rp2040.fifo.push(STATUS_ERROR);
+  // }
 
   // Update data array
   data[0] = turbidity;

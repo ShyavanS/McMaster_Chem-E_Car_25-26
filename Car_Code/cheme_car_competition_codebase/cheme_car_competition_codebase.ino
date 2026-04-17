@@ -679,18 +679,15 @@ void setup(void)
   prop_servo.writeMicroseconds(450);
   prop_servo.attach(PROP_SERVO_PWM, 400, 2600);
   prop_servo.writeMicroseconds(450);
-  busy_wait_ms(2000);
   brak_servo.writeMicroseconds(450);
   brak_servo.attach(BRAK_SERVO_PWM, 400, 2600);
   brak_servo.writeMicroseconds(450);
-  busy_wait_ms(2000);
   steering_servo.writeMicroseconds(1475);
   steering_servo.attach(STEERING_SERVO_PWM, 400, 2600);
   steering_servo.writeMicroseconds(1475);
-  busy_wait_ms(2000);
 
   // Dump reactants before starting drive
-  servo_dump(prop_servo, 2500, 3000);
+  servo_dump(prop_servo, 2500, 1000);
 
   // Wait for busVolatge to surpass 9V
   while (bus_voltage < 9)
